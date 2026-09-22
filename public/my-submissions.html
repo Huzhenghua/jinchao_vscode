@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的投稿 - 烬潮</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🔥 烬潮</div>
+    <div class="nav-links">
+      <a href="/dashboard.html">我的</a>
+      <span class="auth-links"><button class="btn btn-secondary" type="button" onclick="logout()">退出登录</button></span>
+    </div>
+  </nav>
+  <main class="container">
+    <a class="back-link" href="/dashboard.html">返回我的</a>
+    <section class="search-page-header">
+      <p class="eyebrow">MY SUBMISSIONS</p>
+      <h1>我的投稿</h1>
+      <p>按文章、视频和文件分类管理你发布的内容。</p>
+    </section>
+    <section class="submission-category"><div class="section-heading"><h2>我的文章</h2><span id="my-post-count"></span></div><div id="my-submission-posts" class="posts-list"><p class="loading">加载中...</p></div></section>
+    <section class="submission-category"><div class="section-heading"><h2>我的视频</h2><span id="my-video-count"></span></div><div id="my-submission-videos" class="videos-list"><p class="loading">加载中...</p></div></section>
+    <section class="submission-category"><div class="section-heading"><h2>我的文件</h2><span id="my-file-count"></span></div><div id="my-submission-files" class="files-list"><p class="loading">加载中...</p></div></section>
+  </main>
+  <script src="/js/app.js"></script>
+  <script>checkAuth(); setupDetailCards(); loadMySubmissions();</script>
+</body>
+</html>

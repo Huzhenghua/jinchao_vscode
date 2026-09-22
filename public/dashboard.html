@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的 - 烬潮</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🔥 烬潮</div>
+    <div class="nav-links">
+      <a href="/dashboard.html">我的</a>
+    </div>
+  </nav>
+  
+  <main class="container">
+    <section class="dashboard-header">
+      <h1>欢迎，<span id="username">用户</span></h1>
+      <p id="user-bio">管理个人资料和内容</p>
+      <div class="dashboard-actions">
+        <button class="dashboard-action-btn dashboard-action-primary" type="button" data-href="/">返回首页</button>
+        <button class="dashboard-action-btn dashboard-action-secondary" type="button" data-href="/my-submissions.html">我的投稿</button>
+        <button class="dashboard-action-btn dashboard-action-secondary" type="button" data-href="/friends.html">我的好友</button>
+        <button class="dashboard-action-btn dashboard-action-muted" type="button" onclick="logout()">退出登录</button>
+        <button class="dashboard-action-btn dashboard-action-danger" type="button" onclick="deleteAccount()">注销账号</button>
+      </div>
+    </section>
+
+    <section class="new-post-section profile-section">
+      <h2>个人资料</h2>
+      <form id="profile-form" enctype="multipart/form-data">
+        <div class="profile-preview" id="profile-preview"></div>
+        <div class="form-group">
+          <label for="profile-username">用户名</label>
+          <input type="text" id="profile-username" name="username" maxlength="40" required>
+        </div>
+        <div class="form-group">
+          <label for="profile-bio">个人简介</label>
+          <textarea id="profile-bio" name="bio" maxlength="300" rows="3" placeholder="介绍一下自己"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="profile-avatar">头像</label>
+          <input type="file" id="profile-avatar" name="avatar" accept="image/*">
+        </div>
+        <button type="submit" class="btn btn-primary">保存个人资料</button>
+      </form>
+      <div id="profile-message" class="message"></div>
+    </section>
+    
+    <section class="new-post-section">
+      <h2>发布新文章</h2>
+      <form id="post-form">
+        <div class="form-group">
+          <label for="title">标题</label>
+          <input type="text" id="title" name="title" placeholder="请输入文章标题" required>
+        </div>
+        <div class="form-group">
+          <label for="content">内容</label>
+          <textarea id="content" name="content" rows="10" placeholder="请输入文章内容" required></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">发布文章</button>
+      </form>
+      <div id="post-message" class="message"></div>
+    </section>
+
+    <section class="new-post-section">
+      <h2>上传视频</h2>
+      <form id="video-form" enctype="multipart/form-data">
+        <div class="form-group">
+          <label for="video-title">标题</label>
+          <input type="text" id="video-title" name="title" placeholder="请输入视频标题" maxlength="120" required>
+        </div>
+        <div class="form-group">
+          <label for="video-file">视频文件（上传后自动转码为 MP4、WebM 和 HLS）</label>
+          <input type="file" id="video-file" name="video" accept="video/*">
+        </div>
+        <div class="form-group">
+          <label for="video-cover">视频封面（可选，不上传时自动使用首帧）</label>
+          <input type="file" id="video-cover" name="cover" accept="image/*">
+        </div>
+        <div class="form-group">
+          <label for="video-url">或填写视频链接</label>
+          <input type="url" id="video-url" name="videoUrl" placeholder="https://example.com/video.mp4">
+        </div>
+        <button type="submit" class="btn btn-primary">上传视频</button>
+      </form>
+      <div id="video-message" class="message"></div>
+    </section>
+
+    <section class="new-post-section">
+      <h2>上传文件</h2>
+      <form id="file-form" enctype="multipart/form-data">
+        <div class="form-group">
+          <label for="file-title">文件标题</label>
+          <input type="text" id="file-title" name="title" placeholder="请输入文件标题" maxlength="120" required>
+        </div>
+        <div class="form-group">
+          <label for="file-upload">文件</label>
+          <input type="file" id="file-upload" name="file" required>
+        </div>
+        <div class="form-group">
+          <label for="file-password">文件密码（可选）</label>
+          <input type="password" id="file-password" name="password" placeholder="如果需要设置密码，请在此填写">
+        </div>
+        <button type="submit" class="btn btn-primary">上传文件</button>
+      </form>
+      <div id="file-message" class="message"></div>
+    </section>
+
+  </main>
+  
+  <script src="/js/app.js"></script>
+  <script>
+    checkAuth();
+    setupDetailCards();
+    document.querySelectorAll('.dashboard-action-btn[data-href]').forEach(button => {
+      button.addEventListener('click', () => {
+        window.location.href = button.dataset.href;
+      });
+    });
+    document.getElementById('post-form').addEventListener('submit', handlePost);
+    loadProfile();
+    document.getElementById('profile-form').addEventListener('submit', handleProfileUpdate);
+    document.getElementById('video-form').addEventListener('submit', handleVideoUpload);
+    document.getElementById('file-form').addEventListener('submit', handleFileUpload);
+  </script>
+</body>
+</html>

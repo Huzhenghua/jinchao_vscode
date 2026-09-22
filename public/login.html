@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - 烬潮</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🔥 烬潮</div>
+    <div class="nav-links">
+      <a href="/">首页</a>
+      <a class="btn btn-nav" href="/register.html">注册</a>
+      <a class="btn btn-nav btn-nav-active" href="/login.html">登录</a>
+    </div>
+  </nav>
+  
+  <main class="container">
+    <div class="auth-card">
+      <h2>登录</h2>
+      <div class="auth-mode-switch" role="tablist" aria-label="登录方式">
+        <button class="auth-mode-button is-active" type="button" data-login-mode="password">密码登录</button>
+        <button class="auth-mode-button" type="button" data-login-mode="email">邮箱验证码登录</button>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="email">邮箱</label>
+          <input type="email" id="email" name="email" placeholder="请输入邮箱" required>
+        </div>
+        <div class="form-group" id="password-login-field">
+          <label for="password">密码</label>
+          <input type="password" id="password" name="password" placeholder="请输入密码" required>
+        </div>
+        <div class="form-group" id="email-login-field" hidden>
+          <label for="login-code">邮箱验证码</label>
+          <div class="input-with-button">
+            <input type="text" id="login-code" name="code" placeholder="请输入验证码" maxlength="6">
+            <button class="btn btn-secondary" id="send-login-code" type="button">发送验证码</button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">登录</button>
+      </form>
+      <div class="auth-links">
+        <p>还没有账号？<a href="/register.html">立即注册</a></p>
+      </div>
+      <div id="login-message" class="message"></div>
+    </div>
+  </main>
+  
+  <script src="/js/app.js"></script>
+  <script>
+    setupLoginModes();
+    document.getElementById('send-login-code').addEventListener('click', sendLoginCode);
+    document.getElementById('login-form').addEventListener('submit', handleLogin);
+  </script>
+</body>
+</html>

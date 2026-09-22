@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>烬潮 - 博客平台</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🔥 烬潮</div>
+    <div class="nav-links">
+      <a href="/">首页</a>
+      <form id="global-search-form" class="search-form">
+        <input id="global-search-input" type="search" placeholder="搜索文章 / 视频 / 文件" aria-label="站内搜索">
+        <button type="submit" class="btn btn-secondary">搜索</button>
+      </form>
+      <span class="auth-links"><a class="btn btn-nav" href="/register.html">注册</a><a class="btn btn-nav btn-nav-active" href="/login.html">登录</a></span>
+    </div>
+  </nav>
+  
+  <main class="container">
+    <section class="hero">
+      <h1>欢迎来到烬潮</h1>
+      <p>一个简洁优雅的博客平台</p>
+      <div class="hero-actions">
+        <a class="btn btn-hero-primary" href="#videos-list">浏览视频</a>
+        <a class="btn btn-hero-secondary" href="/register.html">加入烬潮</a>
+      </div>
+    </section>
+    
+    <section class="posts-section">
+      <div class="section-heading"><h2>最新文章</h2><a class="more-link" href="/browse.html?type=post" target="_blank" rel="noopener">更多文章</a></div>
+      <div id="posts-list" class="posts-list">
+        <p class="loading">加载中...</p>
+      </div>
+    </section>
+
+    <section class="videos-section">
+      <div class="section-heading"><h2>视频广场</h2><a class="more-link" href="/browse.html?type=video" target="_blank" rel="noopener">更多视频</a></div>
+      <div id="videos-list" class="videos-list">
+        <p class="loading">加载中...</p>
+      </div>
+    </section>
+
+    <section class="files-section">
+      <div class="section-heading"><h2>热门文件</h2><a class="more-link" href="/browse.html?type=file" target="_blank" rel="noopener">更多文件</a></div>
+      <div id="files-list" class="files-list"><p class="loading">加载中...</p></div>
+    </section>
+
+  </main>
+  
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    updateNavigation();
+    setupDetailCards();
+    const homeLimit = getHomeLimit();
+    loadPosts('posts-list', homeLimit, 'hot');
+    loadVideos('videos-list', homeLimit, 'hot');
+    loadFiles('files-list', homeLimit, 'hot');
+    setupGlobalSearch();
+  </script>
+</body>
+</html>
