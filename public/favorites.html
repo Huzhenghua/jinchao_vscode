@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的收藏 - 烬潮</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🔥 烬潮</div>
+    <div class="nav-links">
+      <a href="/">首页</a>
+      <a href="/dashboard.html">我的</a>
+    </div>
+  </nav>
+  <main class="container">
+    <a class="back-link" href="/dashboard.html">返回我的</a>
+    <section class="search-page-header">
+      <p class="eyebrow">FAVORITES</p>
+      <h1>我的收藏</h1>
+      <p>集中查看你收藏的文章、视频和文件。</p>
+    </section>
+    <section class="submission-category">
+      <div class="section-heading">
+        <h2>收藏内容</h2>
+        <span id="favorites-count"></span>
+      </div>
+      <label class="browse-sort-label">筛选类型
+        <select id="favorites-type">
+          <option value="">全部</option>
+          <option value="post">文章</option>
+          <option value="video">视频</option>
+          <option value="file">文件</option>
+        </select>
+      </label>
+      <div id="favorites-list" class="search-results"><p class="loading">加载中...</p></div>
+    </section>
+  </main>
+  <script src="/js/app.js"></script>
+  <script>
+    checkAuth();
+    setupDetailCards();
+    loadFavoritesPage();
+    document.getElementById('favorites-type').addEventListener('change', loadFavoritesPage);
+  </script>
+</body>
+</html>

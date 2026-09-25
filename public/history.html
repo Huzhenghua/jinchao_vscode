@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>浏览历史 - 烬潮</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🔥 烬潮</div>
+    <div class="nav-links">
+      <a href="/">首页</a>
+      <a href="/dashboard.html">我的</a>
+    </div>
+  </nav>
+  <main class="container">
+    <a class="back-link" href="/dashboard.html">返回我的</a>
+    <section class="search-page-header">
+      <p class="eyebrow">HISTORY</p>
+      <h1>浏览历史</h1>
+      <p>最近浏览过的文章、视频和文件（最多保留 60 条）。</p>
+    </section>
+    <section class="submission-category">
+      <div class="section-heading">
+        <h2>最近浏览</h2>
+        <span id="history-count"></span>
+      </div>
+      <div class="history-toolbar">
+        <label class="browse-sort-label">筛选类型
+          <select id="history-type">
+            <option value="">全部</option>
+            <option value="post">文章</option>
+            <option value="video">视频</option>
+            <option value="file">文件</option>
+          </select>
+        </label>
+        <button class="btn btn-danger" type="button" onclick="clearHistory()">清空历史</button>
+      </div>
+      <div id="history-list" class="search-results"><p class="loading">加载中...</p></div>
+    </section>
+  </main>
+  <script src="/js/app.js"></script>
+  <script>
+    checkAuth();
+    setupDetailCards();
+    loadHistoryPage();
+    document.getElementById('history-type').addEventListener('change', loadHistoryPage);
+  </script>
+</body>
+</html>

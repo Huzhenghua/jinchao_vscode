@@ -44,4 +44,27 @@ async function sendVerificationEmail(email, code) {
   }
 }
 
-module.exports = { sendVerificationEmail };
+async function sendReportNotificationEmail(report) {
+  if (!config.adminEmail) return null;
+  if (!config.email.user || !config.email.pass) {
+    throw new Error('未配置邮箱账号，请设置 JINCHAO_EMAIL_USER 和 JINCHAO_EMAIL_PASS');
+  }
+
+  const mailOptions = {
+    from: config.email.user,
+    to: config.adminEmail,
+    subject: '烬潮博客 - 内容举报通知',
+    html: `
+      <div style="padding: 20px; background: #f5f5f5;">
+        <h2 style="color: #333;">烬潮博客新举报</h2>
+        <p><strong>举报者ID：</strong>${report.reporter_id}</p>
+        <p><strong>内容类型：</strong>${report.content_type}，ID：${report.content_id}</p>
+        <p><strong>举报原因：</strong>${report.reason}</p>
+        <p style="color: #999; font-size: 14px;">请尽快前往后台审核。</p>
+      </div>
+    `
+  };
+  return transporter.sendMail(mailOptions);
+}
+
+module.exports = { sendVerificationEmail, sendReportNotificationEmail };

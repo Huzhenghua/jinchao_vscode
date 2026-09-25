@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>通知 - 烬潮</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">🔥 烬潮</div>
+    <div class="nav-links">
+      <a href="/">首页</a>
+      <a href="/dashboard.html">我的</a>
+    </div>
+  </nav>
+  <main class="container">
+    <a class="back-link" href="/dashboard.html">返回我的</a>
+    <section class="search-page-header">
+      <p class="eyebrow">NOTIFICATIONS</p>
+      <h1>通知</h1>
+      <p>点赞、评论、@提及、好友申请和私信都会在这里提醒你。</p>
+    </section>
+    <section class="submission-category">
+      <div class="section-heading">
+        <h2>全部通知</h2>
+        <span id="notification-unread-count">加载中...</span>
+      </div>
+      <div class="notification-actions">
+        <button class="btn btn-secondary" type="button" onclick="markAllNotificationsRead()">全部标为已读</button>
+      </div>
+      <div id="notification-list" class="notifications-list"><p class="loading">加载中...</p></div>
+    </section>
+  </main>
+  <script src="/js/app.js"></script>
+  <script>checkAuth(); loadNotificationsPage();</script>
+</body>
+</html>

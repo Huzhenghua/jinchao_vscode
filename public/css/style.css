@@ -1214,6 +1214,109 @@ h1, h2, h3, .nav-brand {
   border-top-color: rgba(130, 150, 151, 0.2);
 }
 
+/* ===== 收藏按钮 / 举报按钮 / 通知 / 浏览历史 / 个人主页 ===== */
+.btn.is-active {
+  color: #24645d;
+  background: rgba(178, 229, 216, 0.72);
+  border-color: rgba(43, 139, 137, 0.45);
+}
+
+.notifications-list,
+.history-toolbar {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.history-toolbar {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.notification-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1rem 1.1rem;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(153, 171, 174, 0.4);
+  border-radius: 16px;
+}
+
+.notification-item.is-unread {
+  border-color: rgba(43, 139, 137, 0.55);
+  background: rgba(226, 247, 242, 0.7);
+  box-shadow: 0 8px 22px rgba(43, 139, 137, 0.1);
+}
+
+.notification-main {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1 1 15rem;
+}
+
+.notification-body {
+  min-width: 0;
+}
+
+.notification-title {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.notification-preview,
+.notification-meta {
+  color: var(--muted);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.profile-page-card {
+  padding: 1.4rem 1.5rem;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(153, 171, 174, 0.4);
+  border-radius: 18px;
+}
+
+.profile-page-card h1 {
+  font-size: 1.4rem;
+}
+
+.profile-bio {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.profile-meta {
+  margin-top: 0.8rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.profile-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.6rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.profile-page-card .detail-actions {
+  margin-top: 1rem;
+}
+
 @media (max-width: 760px) {
   .navbar {
     top: 0;
@@ -1344,6 +1447,14 @@ h1, h2, h3, .nav-brand {
   .file-item {
     padding: 0.9rem;
     overflow-wrap: anywhere;
+  }
+
+  .history-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .notification-item {
+    padding: 0.9rem;
   }
 
   .detail-actions .btn {

@@ -9,7 +9,7 @@ function avatarMarkup(avatarUrl, username) {
 
 function userAvatarMarkup(userId, avatarUrl, username) {
   const avatar = avatarMarkup(avatarUrl, username);
-  return userId ? `<a class="avatar-link" href="/friends.html?user=${encodeURIComponent(userId)}" title="查看用户">${avatar}</a>` : avatar;
+  return userId ? `<a class="avatar-link" href="/profile.html?user=${encodeURIComponent(userId)}" title="查看用户主页">${avatar}</a>` : avatar;
 }
 
 function getHomeLimit() {
@@ -128,6 +128,9 @@ async function handleLogin(e) {
   const password = document.getElementById('password').value;
   const code = document.getElementById('login-code').value.trim().toUpperCase();
   const isEmailMode = document.getElementById('email-login-field').hidden === false;
+  // 勾选“记住我”时会话保留 30 天，否则关闭浏览器即失效
+  const rememberField = document.getElementById('remember-me');
+  const remember = Boolean(rememberField && rememberField.checked);
 
   try {
     const response = await fetch(`${API_BASE}${isEmailMode ? '/api/login-code' : '/api/login'}`, {
@@ -135,7 +138,7 @@ async function handleLogin(e) {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(isEmailMode ? { email, code } : { email, password })
+      body: JSON.stringify(isEmailMode ? { email, code, remember } : { email, password, remember })
     });
     
     const data = await response.json();
@@ -155,6 +158,47 @@ function sendLoginCode() {
     messageId: 'login-message',
     buttonId: 'send-login-code',
   });
+}
+
+// 发送重置密码验证码
+function sendResetCode() {
+  return requestVerificationCode({
+    endpoint: '/api/send-reset-code',
+    messageId: 'reset-message',
+    buttonId: 'send-reset-code',
+  });
+}
+
+// 处理重置密码
+async function handleResetPassword(e) {
+  e.preventDefault();
+
+  const email = document.getElementById('email').value.trim().toLowerCase();
+  const code = document.getElementById('code').value.trim().toUpperCase();
+  const password = document.getElementById('password').value;
+  const confirmPassword = document.getElementById('confirm-password').value;
+
+  if (password !== confirmPassword) {
+    showMessage('reset-message', '两次密码不一致', true);
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/api/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code, password }),
+    });
+    const data = await response.json();
+    showMessage('reset-message', data.message, !data.success);
+    if (data.success) {
+      setTimeout(() => {
+        window.location.href = '/login.html';
+      }, 1500);
+    }
+  } catch (error) {
+    showMessage('reset-message', '重置失败，请重试', true);
+  }
 }
 
 function setupLoginModes() {
@@ -182,7 +226,8 @@ async function checkAuth() {
     const data = await response.json();
     
     if (data.success) {
-      document.getElementById('username').textContent = data.user.username;
+      const usernameEl = document.getElementById('username');
+      if (usernameEl) usernameEl.textContent = data.user.username;
       const bio = document.getElementById('user-bio');
       if (bio) bio.textContent = data.user.bio || '管理个人资料和内容';
       document.body.dataset.userId = String(data.user.id);
@@ -209,12 +254,46 @@ async function updateNavigation() {
     const links = document.createElement('span');
     links.className = 'auth-links';
     links.innerHTML = data.success
-      ? '<a href="/dashboard.html">我的</a>'
+      ? '<a class="nav-icon-link" href="/notifications.html" title="通知" aria-label="通知">🔔<span class="nav-badge" id="nav-notification-badge" hidden></span></a><a class="nav-icon-link" href="/friends.html" title="私信与好友" aria-label="私信与好友">✉️<span class="nav-badge" id="nav-message-badge" hidden></span></a><a href="/dashboard.html">我的</a>'
       : '<a class="btn btn-nav" href="/register.html">注册</a><a class="btn btn-nav btn-nav-active" href="/login.html">登录</a>';
     navLinks.appendChild(links);
+
+    if (data.success) startNavBadgePolling();
   } catch (error) {
     // 导航失败时保留页面，不影响主页浏览
   }
+}
+
+// 导航角标：未读通知 + 未读私信
+let navBadgeTimer = null;
+
+function applyNavBadge(element, count) {
+  if (!element) return;
+  const value = Number(count) || 0;
+  element.textContent = value > 99 ? '99+' : String(value);
+  element.hidden = value === 0;
+}
+
+async function refreshNavBadges() {
+  const notificationBadge = document.getElementById('nav-notification-badge');
+  const messageBadge = document.getElementById('nav-message-badge');
+  if (!notificationBadge && !messageBadge) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/notifications/unread-count`);
+    const data = await response.json();
+    if (!data.success) return;
+    applyNavBadge(notificationBadge, data.unread);
+    applyNavBadge(messageBadge, data.messages);
+  } catch (error) {
+    // 轮询失败不影响页面使用
+  }
+}
+
+function startNavBadgePolling() {
+  refreshNavBadges();
+  if (navBadgeTimer) return;
+  navBadgeTimer = setInterval(refreshNavBadges, 30000);
 }
 
 // 退出登录
@@ -310,9 +389,9 @@ async function setupChatPage() {
 }
 
 // 加载文章列表
-async function loadPosts(targetId = 'posts-list', limit = 100, sort = 'latest') {
+async function loadPosts(targetId = 'posts-list', limit = 100, sort = 'latest', userId = null) {
   try {
-    const response = await fetch(`${API_BASE}/api/posts?limit=${limit}&sort=${sort}`);
+    const response = await fetch(`${API_BASE}/api/posts?limit=${limit}&sort=${sort}${userId ? `&userId=${encodeURIComponent(userId)}` : ''}`);
     const posts = await response.json();
     
     const postsList = document.getElementById(targetId);
@@ -462,13 +541,13 @@ async function deletePost(postId) {
 }
 
 // 加载公开视频
-async function loadVideos(targetId = 'videos-list', limit = 100, sort = 'latest') {
+async function loadVideos(targetId = 'videos-list', limit = 100, sort = 'latest', userId = null) {
   const videosList = document.getElementById(targetId);
   if (!videosList) return;
 
   try {
     const [videosResponse, userResponse] = await Promise.all([
-      fetch(`${API_BASE}/api/videos?limit=${limit}&sort=${sort}`),
+      fetch(`${API_BASE}/api/videos?limit=${limit}&sort=${sort}${userId ? `&userId=${encodeURIComponent(userId)}` : ''}`),
       fetch(`${API_BASE}/api/user`),
     ]);
     const videos = await videosResponse.json();
@@ -499,13 +578,13 @@ async function loadVideos(targetId = 'videos-list', limit = 100, sort = 'latest'
   }
 }
 
-async function loadFiles(targetId = 'files-list', limit = 100, sort = 'latest') {
+async function loadFiles(targetId = 'files-list', limit = 100, sort = 'latest', userId = null) {
   const filesList = document.getElementById(targetId);
   if (!filesList) return;
 
   try {
     const [filesResponse, userResponse] = await Promise.all([
-      fetch(`${API_BASE}/api/files?limit=${limit}&sort=${sort}`),
+      fetch(`${API_BASE}/api/files?limit=${limit}&sort=${sort}${userId ? `&userId=${encodeURIComponent(userId)}` : ''}`),
       fetch(`${API_BASE}/api/user`),
     ]);
     const files = await filesResponse.json();
@@ -744,6 +823,10 @@ async function loadDetailPage() {
           <h1>${escapeHtml(item.title)}</h1>
           <div class="meta"><span class="author-line">${userAvatarMarkup(item.user_id, item.avatarUrl, item.username)}<span>作者：${escapeHtml(item.username)}</span></span><span>发布于：${new Date(item.created_at).toLocaleString('zh-CN')}</span><span>浏览 ${item.view_count || 0}</span></div>
           <div class="detail-content-text">${escapeHtml(item.content)}</div>
+          <div class="detail-actions">
+            <button class="btn btn-secondary${item.favorited ? ' is-active' : ''}" type="button" onclick="toggleFavorite('post', ${item.id}, this)">${item.favorited ? '已收藏' : '收藏'}</button>
+            <button class="btn btn-secondary" type="button" onclick="reportContent('post', ${item.id})">举报</button>
+          </div>
           <section class="detail-comments">
             <h2>文章评论</h2>
             <div class="comments" id="post-comments-${item.id}"><p class="loading">加载评论中...</p></div>
@@ -780,6 +863,8 @@ async function loadDetailPage() {
         </div>
         <div class="detail-actions">
           ${item.protected && !item.owner ? `<button class="btn btn-primary" type="button" onclick="downloadProtectedFile(${item.id})">输入密码下载</button>` : `<a class="btn btn-primary" href="${item.downloadUrl || `/api/files/${item.id}/download`}">下载文件</a>`}
+          <button class="btn btn-secondary${item.favorited ? ' is-active' : ''}" type="button" onclick="toggleFavorite('file', ${item.id}, this)">${item.favorited ? '已收藏' : '收藏'}</button>
+          <button class="btn btn-secondary" type="button" onclick="reportContent('file', ${item.id})">举报</button>
         </div>
       </article>
     `;
@@ -803,7 +888,7 @@ function renderVideoDetail(video) {
       <label class="video-speed">播放速度
         <select data-video-speed aria-label="播放速度"><option value="0.5">0.5x</option><option value="1" selected>正常</option><option value="1.5">1.5x</option><option value="2">2x</option></select>
       </label>
-      <div class="video-stats"><button class="btn like-button ${video.liked ? 'is-liked' : ''}" type="button" onclick="toggleVideoLike(${video.id})">${video.liked ? '已点赞' : '点赞'} <span class="like-count">${video.like_count}</span></button><span>浏览 ${video.view_count || 0}</span><span>评论 <span class="comment-count">${video.comment_count}</span></span></div>
+      <div class="video-stats"><button class="btn like-button ${video.liked ? 'is-liked' : ''}" type="button" onclick="toggleVideoLike(${video.id})">${video.liked ? '已点赞' : '点赞'} <span class="like-count">${video.like_count}</span></button><button class="btn btn-secondary${video.favorited ? ' is-active' : ''}" type="button" onclick="toggleFavorite('video', ${video.id}, this)">${video.favorited ? '已收藏' : '收藏'}</button><button class="btn btn-secondary" type="button" onclick="reportContent('video', ${video.id})">举报</button><span>浏览 ${video.view_count || 0}</span><span>评论 <span class="comment-count">${video.comment_count}</span></span></div>
       <div class="comments" id="comments-${video.id}"><p class="loading">加载评论中...</p></div>
       <form class="comment-form" onsubmit="submitVideoComment(event, ${video.id})"><input name="content" data-mention-input list="mention-users" maxlength="500" placeholder="写下评论，使用 @用户名 提及他人" required><button class="btn btn-secondary" type="submit">评论</button></form><datalist id="mention-users"></datalist>
     </article>
@@ -1032,6 +1117,272 @@ async function deleteVideo(videoId) {
     return;
   }
   await loadVideos();
+}
+
+// ===== 站内通知 =====
+const CONTENT_TYPE_NAMES = { post: '文章', video: '视频', file: '文件' };
+
+const NOTIFICATION_TYPE_LABELS = {
+  like: '点赞了你的视频',
+  comment: '评论了你的内容',
+  comment_like: '点赞了你的评论',
+  mention: '在评论中提到了你',
+  friend_request: '申请添加你为好友',
+  friend_accept: '接受了你的好友申请',
+  message: '给你发送了私信',
+};
+
+function notificationTypeLabel(type) {
+  return NOTIFICATION_TYPE_LABELS[type] || '有新动态';
+}
+
+function contentTypeName(type) {
+  return CONTENT_TYPE_NAMES[type] || '内容';
+}
+
+function renderNotificationItem(notification) {
+  return `
+    <article class="notification-item${notification.is_read ? '' : ' is-unread'}">
+      <div class="notification-main">
+        ${notification.actor_name
+          ? userAvatarMarkup(null, notification.actorAvatarUrl, notification.actor_name)
+          : '<span class="avatar avatar-fallback" aria-hidden="true">🔔</span>'}
+        <div class="notification-body">
+          <p class="notification-title"><strong>${escapeHtml(notification.actor_name || '系统通知')}</strong> ${escapeHtml(notificationTypeLabel(notification.type))}</p>
+          ${notification.preview ? `<p class="notification-preview">${escapeHtml(String(notification.preview).slice(0, 120))}</p>` : ''}
+          <p class="notification-meta">${escapeHtml(contentTypeName(notification.content_type))} · ${new Date(notification.created_at).toLocaleString('zh-CN')}</p>
+        </div>
+      </div>
+      <div class="notification-actions">
+        ${notification.link ? `<a class="btn btn-secondary" href="${escapeAttribute(notification.link)}">查看</a>` : ''}
+        ${notification.is_read ? '' : `<button class="btn btn-secondary" type="button" onclick="markNotificationRead(${notification.id})">标记已读</button>`}
+        <button class="btn btn-danger" type="button" onclick="deleteNotification(${notification.id})">删除</button>
+      </div>
+    </article>
+  `;
+}
+
+async function loadNotificationsPage() {
+  const list = document.getElementById('notification-list');
+  if (!list) return;
+
+  const response = await fetch(`${API_BASE}/api/notifications`);
+  const data = await response.json();
+  if (!data.success) {
+    list.innerHTML = `<p class="loading">${escapeHtml(data.message || '请先登录')}</p>`;
+    return;
+  }
+
+  const countElement = document.getElementById('notification-unread-count');
+  if (countElement) countElement.textContent = data.unread ? `${data.unread} 条未读` : '全部已读';
+  list.innerHTML = data.notifications.length
+    ? data.notifications.map(renderNotificationItem).join('')
+    : '<p class="empty-comments">暂无通知</p>';
+}
+
+async function markNotificationRead(notificationId) {
+  await fetch(`${API_BASE}/api/notifications/read`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: notificationId }),
+  });
+  await loadNotificationsPage();
+  refreshNavBadges();
+}
+
+async function markAllNotificationsRead() {
+  await fetch(`${API_BASE}/api/notifications/read`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  await loadNotificationsPage();
+  refreshNavBadges();
+}
+
+async function deleteNotification(notificationId) {
+  await fetch(`${API_BASE}/api/notifications/${notificationId}`, { method: 'DELETE' });
+  await loadNotificationsPage();
+  refreshNavBadges();
+}
+
+// ===== 收藏 / 浏览历史 =====
+async function toggleFavorite(contentType, contentId, button) {
+  const response = await fetch(`${API_BASE}/api/favorites`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contentType, contentId }),
+  });
+  const data = await response.json();
+  if (!data.success) {
+    window.alert(data.message);
+    return;
+  }
+  if (button) {
+    button.classList.toggle('is-active', Boolean(data.favorited));
+    button.textContent = data.favorited ? '已收藏' : '收藏';
+  }
+}
+
+async function removeFavorite(contentType, contentId) {
+  const response = await fetch(`${API_BASE}/api/favorites`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contentType, contentId }),
+  });
+  const data = await response.json();
+  if (!data.success) {
+    window.alert(data.message);
+    return;
+  }
+  await loadFavoritesPage();
+}
+
+function renderContentSummaryCard(item, timeField) {
+  const summary = item.summary ? escapeHtml(String(item.summary).slice(0, 160)) : '暂无简介';
+  const metric = item.type === 'file' ? `下载 ${item.download_count || 0}` : `浏览 ${item.view_count || 0}`;
+  const timeLabel = timeField === 'viewed_at' ? '浏览于' : '收藏于';
+
+  return `
+    <article class="search-result-item detail-card" data-detail-url="/detail.html?type=${item.type}&id=${item.id}" tabindex="0" role="link">
+      <span class="detail-type">${escapeHtml(contentTypeName(item.type))}</span>
+      <h3>${escapeHtml(item.title || '未命名')}</h3>
+      <p class="author-line">${userAvatarMarkup(item.user_id, item.avatarUrl, item.username)}<span>${escapeHtml(item.username || '未知用户')}</span></p>
+      ${item.type === 'video' ? `<div class="search-video-cover">${item.posterUrl ? `<img src="${escapeAttribute(item.posterUrl)}" alt="${escapeAttribute(item.title)}封面">` : '<span>暂无封面</span>'}<span class="video-cover-icon">播放</span></div>` : ''}
+      <p>${summary}</p>
+      <p class="search-metric">${metric} · ${timeLabel} ${new Date(item[timeField]).toLocaleString('zh-CN')}</p>
+      <div class="detail-actions">
+        <a class="btn btn-secondary" href="/detail.html?type=${item.type}&id=${item.id}">查看详情</a>
+        ${timeField === 'created_at' ? `<button class="btn btn-danger" type="button" onclick="removeFavorite('${item.type}', ${item.id})">取消收藏</button>` : ''}
+      </div>
+    </article>
+  `;
+}
+
+async function loadFavoritesPage() {
+  const list = document.getElementById('favorites-list');
+  if (!list) return;
+
+  const typeSelect = document.getElementById('favorites-type');
+  const type = typeSelect ? typeSelect.value : '';
+  const response = await fetch(`${API_BASE}/api/favorites${type ? `?type=${encodeURIComponent(type)}` : ''}`);
+  const data = await response.json();
+  if (!data.success) {
+    list.innerHTML = `<p class="loading">${escapeHtml(data.message || '请先登录')}</p>`;
+    return;
+  }
+
+  const countElement = document.getElementById('favorites-count');
+  if (countElement) countElement.textContent = `${data.items.length} 项`;
+  list.innerHTML = data.items.length
+    ? data.items.map(item => renderContentSummaryCard(item, 'created_at')).join('')
+    : '<p class="empty-comments">还没有收藏内容</p>';
+}
+
+async function loadHistoryPage() {
+  const list = document.getElementById('history-list');
+  if (!list) return;
+
+  const typeSelect = document.getElementById('history-type');
+  const type = typeSelect ? typeSelect.value : '';
+  const response = await fetch(`${API_BASE}/api/history${type ? `?type=${encodeURIComponent(type)}` : ''}`);
+  const data = await response.json();
+  if (!data.success) {
+    list.innerHTML = `<p class="loading">${escapeHtml(data.message || '请先登录')}</p>`;
+    return;
+  }
+
+  const countElement = document.getElementById('history-count');
+  if (countElement) countElement.textContent = `${data.items.length} 项`;
+  list.innerHTML = data.items.length
+    ? data.items.map(item => renderContentSummaryCard(item, 'viewed_at')).join('')
+    : '<p class="empty-comments">还没有浏览记录</p>';
+}
+
+async function clearHistory() {
+  if (!window.confirm('确定清空全部浏览历史吗？')) return;
+  const response = await fetch(`${API_BASE}/api/history`, { method: 'DELETE' });
+  const data = await response.json();
+  if (!data.success) {
+    window.alert(data.message);
+    return;
+  }
+  await loadHistoryPage();
+}
+
+// ===== 举报内容 =====
+async function reportContent(contentType, contentId) {
+  const reason = window.prompt('请填写举报原因（2-300字）：');
+  if (reason === null) return;
+
+  const response = await fetch(`${API_BASE}/api/reports`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contentType, contentId, reason }),
+  });
+  const data = await response.json();
+  window.alert(data.message);
+}
+
+// 公开的个人主页（他人视角）
+async function loadProfilePage() {
+  const container = document.getElementById('profile-page');
+  if (!container) return;
+
+  const userId = new URLSearchParams(window.location.search).get('user');
+  if (!userId) {
+    container.innerHTML = '<p class="loading">用户地址不正确</p>';
+    return;
+  }
+
+  const response = await fetch(`${API_BASE}/api/users/${encodeURIComponent(userId)}`);
+  const data = await response.json();
+  if (!response.ok || !data.success) {
+    container.innerHTML = `<p class="loading">${escapeHtml(data.message || '用户不存在')}</p>`;
+    return;
+  }
+
+  const user = data.user;
+  document.title = `${user.username} - 烬潮`;
+
+  let action = '';
+  if (data.isSelf) {
+    action = '<a class="btn btn-secondary" href="/dashboard.html">编辑我的资料</a>';
+  } else if (data.isFriend) {
+    action = `<a class="btn btn-secondary" href="/chat.html?user=${user.id}">发送私信</a><button class="btn btn-danger" type="button" onclick="removeFriendFromProfile(${user.id})">删除好友</button>`;
+  } else {
+    action = `<button class="btn btn-primary" type="button" onclick="sendFriendRequestFromProfile(${user.id})">添加好友</button>`;
+  }
+
+  container.innerHTML = `
+    <article class="profile-page-card">
+      <div class="author-line">${userAvatarMarkup(user.id, user.avatarUrl, user.username)}<div><h1>${escapeHtml(user.username)}</h1><p class="profile-bio">${escapeHtml(user.bio || '这个用户还没有填写简介')}</p></div></div>
+      <p class="profile-meta">加入时间：${new Date(user.created_at).toLocaleString('zh-CN')}</p>
+      <div class="profile-stats"><span>文章 ${user.post_count || 0}</span><span>视频 ${user.video_count || 0}</span><span>文件 ${user.file_count || 0}</span></div>
+      <div class="detail-actions">${action}</div>
+    </article>
+    <section class="submission-category"><div class="section-heading"><h2>TA 的文章</h2></div><div id="profile-posts" class="posts-list"><p class="loading">加载中...</p></div></section>
+    <section class="submission-category"><div class="section-heading"><h2>TA 的视频</h2></div><div id="profile-videos" class="videos-list"><p class="loading">加载中...</p></div></section>
+    <section class="submission-category"><div class="section-heading"><h2>TA 的文件</h2></div><div id="profile-files" class="files-list"><p class="loading">加载中...</p></div></section>
+  `;
+
+  setupDetailCards();
+  await Promise.all([
+    loadPosts('profile-posts', 20, 'latest', user.id),
+    loadVideos('profile-videos', 20, 'latest', user.id),
+    loadFiles('profile-files', 20, 'latest', user.id),
+  ]);
+}
+
+async function sendFriendRequestFromProfile(userId) {
+  await sendFriendRequest(userId);
+  await loadProfilePage();
+}
+
+async function removeFriendFromProfile(userId) {
+  if (!window.confirm('确定删除好友吗？')) return;
+  await fetch(`${API_BASE}/api/friends/${userId}`, { method: 'DELETE' });
+  await loadProfilePage();
 }
 
 // HTML转义
