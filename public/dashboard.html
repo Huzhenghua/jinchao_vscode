@@ -7,126 +7,300 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <nav class="navbar">
-    <div class="nav-brand">🔥 烬潮</div>
-    <div class="nav-links">
-      <a href="/dashboard.html">我的</a>
+  <!-- 主题引导：在首帧渲染前应用深色类，避免浅色闪烁（FOUC） -->
+  <script>
+    (function () {
+      var stored = localStorage.getItem('theme');
+      var dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.body.classList.add('dark');
+    })();
+  </script>
+
+  <header class="navbar">
+    <a class="nav-brand" href="/"><svg class="brand-logo" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3 1.072-2.143 2.5-3.736 4.5-5 .5 2.5 1.5 3.5 2.5 5a7.5 7.5 0 1 1-11 0c.383-.476 1-1.5 1-2.5"/></svg>烬潮</a>
+    <div class="nav-center">
+      <form class="nav-search" id="nav-search-form">
+        <input class="nav-search-input" id="nav-search-input" type="search" placeholder="搜索视频 / 文章 / 文件" />
+        <button class="nav-search-btn" type="submit">搜索</button>
+      </form>
     </div>
-  </nav>
-  
-  <main class="container">
-    <section class="dashboard-header">
-      <h1>欢迎，<span id="username">用户</span></h1>
-      <p id="user-bio">管理个人资料和内容</p>
-      <div class="dashboard-actions">
-        <button class="dashboard-action-btn dashboard-action-primary" type="button" data-href="/">返回首页</button>
-        <button class="dashboard-action-btn dashboard-action-secondary" type="button" data-href="/my-submissions.html">我的投稿</button>
-        <button class="dashboard-action-btn dashboard-action-secondary" type="button" data-href="/favorites.html">我的收藏</button>
-        <button class="dashboard-action-btn dashboard-action-secondary" type="button" data-href="/history.html">浏览历史</button>
-        <button class="dashboard-action-btn dashboard-action-secondary" type="button" data-href="/notifications.html">我的通知</button>
-        <button class="dashboard-action-btn dashboard-action-secondary" type="button" data-href="/friends.html">我的好友</button>
-        <button class="dashboard-action-btn dashboard-action-muted" type="button" onclick="logout()">退出登录</button>
-        <button class="dashboard-action-btn dashboard-action-danger" type="button" onclick="deleteAccount()">注销账号</button>
+    <div class="nav-actions" id="nav-actions"></div>
+  </header>
+
+  <main class="container dashboard-page">
+
+    <!-- 层级导航：替代原先混在操作区的“返回首页”按钮 -->
+    <nav class="dash-breadcrumb" aria-label="面包屑导航">
+      <a class="dash-breadcrumb-link" href="/">
+        <svg class="dash-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        首页
+      </a>
+      <span class="dash-breadcrumb-sep" aria-hidden="true">/</span>
+      <span class="dash-breadcrumb-current" aria-current="page">个人中心</span>
+    </nav>
+
+    <!-- 身份区：头像 + 用户名 + 简介 + 账号元信息 -->
+    <section class="dash-hero" aria-labelledby="dash-hero-name">
+      <div class="dash-hero-avatar" id="dash-hero-avatar"></div>
+      <div class="dash-hero-body">
+        <div class="dash-hero-heading">
+          <h1 class="dash-hero-name" id="dash-hero-name"><span id="username">用户</span></h1>
+          <span class="dash-role-badge" id="dash-role" hidden></span>
+        </div>
+        <p class="dash-hero-bio" id="user-bio">管理个人资料和内容</p>
+        <ul class="dash-hero-meta">
+          <li class="dash-hero-meta-item">
+            <svg class="dash-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            <span id="dash-email">—</span>
+          </li>
+          <li class="dash-hero-meta-item">
+            <svg class="dash-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+            加入于 <span id="dash-joined">—</span>
+          </li>
+        </ul>
+      </div>
+      <div class="dash-hero-actions">
+        <button class="btn btn-primary" type="button" data-dash-jump="post">
+          <svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+          开始创作
+        </button>
+        <a class="btn btn-secondary" id="dash-view-space" href="/space.html">查看我的主页</a>
       </div>
     </section>
 
-    <section class="new-post-section profile-section">
-      <h2>个人资料</h2>
-      <form id="profile-form" enctype="multipart/form-data">
-        <div class="profile-preview" id="profile-preview"></div>
-        <div class="form-group">
-          <label for="profile-username">用户名</label>
-          <input type="text" id="profile-username" name="username" maxlength="40" required>
-        </div>
-        <div class="form-group">
-          <label for="profile-bio">个人简介</label>
-          <textarea id="profile-bio" name="bio" maxlength="300" rows="3" placeholder="介绍一下自己"></textarea>
-        </div>
-        <div class="form-group">
-          <label for="profile-avatar">头像</label>
-          <input type="file" id="profile-avatar" name="avatar" accept="image/*">
-        </div>
-        <button type="submit" class="btn btn-primary">保存个人资料</button>
-      </form>
-      <div id="profile-message" class="message"></div>
-    </section>
-    
-    <section class="new-post-section">
-      <h2>发布新文章</h2>
-      <form id="post-form">
-        <div class="form-group">
-          <label for="title">标题</label>
-          <input type="text" id="title" name="title" placeholder="请输入文章标题" required>
-        </div>
-        <div class="form-group">
-          <label for="content">内容</label>
-          <textarea id="content" name="content" rows="10" placeholder="请输入文章内容" required></textarea>
-        </div>
-        <button type="submit" class="btn btn-primary">发布文章</button>
-      </form>
-      <div id="post-message" class="message"></div>
+    <!-- 数据概览：首屏加载前用占位符占位，避免布局抖动 -->
+    <section class="dash-stats" id="dash-stats" aria-label="数据概览" aria-busy="true">
+      <h2 class="dash-visually-hidden">数据概览</h2>
+      <div class="dash-stat" data-stat="videos">
+        <span class="dash-stat-icon" aria-hidden="true"><svg class="dash-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg></span>
+        <span class="dash-stat-value">—</span>
+        <span class="dash-stat-label">视频</span>
+      </div>
+      <div class="dash-stat" data-stat="posts">
+        <span class="dash-stat-icon" aria-hidden="true"><svg class="dash-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg></span>
+        <span class="dash-stat-value">—</span>
+        <span class="dash-stat-label">文章</span>
+      </div>
+      <div class="dash-stat" data-stat="files">
+        <span class="dash-stat-icon" aria-hidden="true"><svg class="dash-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg></span>
+        <span class="dash-stat-value">—</span>
+        <span class="dash-stat-label">文件</span>
+      </div>
+      <div class="dash-stat" data-stat="followers">
+        <span class="dash-stat-icon" aria-hidden="true"><svg class="dash-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+        <span class="dash-stat-value">—</span>
+        <span class="dash-stat-label">粉丝</span>
+      </div>
+      <div class="dash-stat" data-stat="likes">
+        <span class="dash-stat-icon" aria-hidden="true"><svg class="dash-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></span>
+        <span class="dash-stat-value">—</span>
+        <span class="dash-stat-label">获赞</span>
+      </div>
+      <div class="dash-stat" data-stat="favorites">
+        <span class="dash-stat-icon" aria-hidden="true"><svg class="dash-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>
+        <span class="dash-stat-value">—</span>
+        <span class="dash-stat-label">收藏</span>
+      </div>
     </section>
 
-    <section class="new-post-section">
-      <h2>上传视频</h2>
-      <form id="video-form" enctype="multipart/form-data">
-        <div class="form-group">
-          <label for="video-title">标题</label>
-          <input type="text" id="video-title" name="title" placeholder="请输入视频标题" maxlength="120" required>
-        </div>
-        <div class="form-group">
-          <label for="video-file">视频文件（上传后自动转码为 MP4、WebM 和 HLS）</label>
-          <input type="file" id="video-file" name="video" accept="video/*">
-        </div>
-        <div class="form-group">
-          <label for="video-cover">视频封面（可选，不上传时自动使用首帧）</label>
-          <input type="file" id="video-cover" name="cover" accept="image/*">
-        </div>
-        <div class="form-group">
-          <label for="video-url">或填写视频链接</label>
-          <input type="url" id="video-url" name="videoUrl" placeholder="https://example.com/video.mp4">
-        </div>
-        <button type="submit" class="btn btn-primary">上传视频</button>
-      </form>
-      <div id="video-message" class="message"></div>
+    <!-- 快捷入口：内容型导航，与账号安全操作分区 -->
+    <section class="dash-section" aria-labelledby="dash-quick-title">
+      <div class="section-header">
+        <h2 id="dash-quick-title">快捷入口</h2>
+      </div>
+      <div class="dash-quick-grid">
+        <a class="dash-quick-card" href="/my-submissions.html">
+          <span class="dash-quick-icon" aria-hidden="true"><svg class="dash-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></span>
+          <span class="dash-quick-text">
+            <strong>我的投稿</strong>
+            <small>管理已发布的视频、文章与文件</small>
+          </span>
+          <svg class="dash-quick-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </a>
+        <a class="dash-quick-card" href="/favorites.html">
+          <span class="dash-quick-icon" aria-hidden="true"><svg class="dash-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>
+          <span class="dash-quick-text">
+            <strong>我的收藏</strong>
+            <small>查看收藏的视频、文章与文件</small>
+          </span>
+          <svg class="dash-quick-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </a>
+        <a class="dash-quick-card" href="/history.html">
+          <span class="dash-quick-icon" aria-hidden="true"><svg class="dash-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+          <span class="dash-quick-text">
+            <strong>浏览历史</strong>
+            <small>回顾最近看过与下载的内容</small>
+          </span>
+          <svg class="dash-quick-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </a>
+        <a class="dash-quick-card" href="/notifications.html">
+          <span class="dash-quick-icon" aria-hidden="true"><svg class="dash-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span>
+          <span class="dash-quick-text">
+            <strong>我的通知<span class="dash-quick-badge" id="dash-quick-badge" hidden></span></strong>
+            <small>点赞、评论与关注提醒</small>
+          </span>
+          <svg class="dash-quick-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </a>
+        <a class="dash-quick-card" href="/friends.html">
+          <span class="dash-quick-icon" aria-hidden="true"><svg class="dash-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span>
+          <span class="dash-quick-text">
+            <strong>我的好友</strong>
+            <small>好友列表与私信会话</small>
+          </span>
+          <svg class="dash-quick-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </a>
+      </div>
     </section>
 
-    <section class="new-post-section">
-      <h2>上传文件</h2>
-      <form id="file-form" enctype="multipart/form-data">
-        <div class="form-group">
-          <label for="file-title">文件标题</label>
-          <input type="text" id="file-title" name="title" placeholder="请输入文件标题" maxlength="120" required>
+    <!-- 创作中心：四个表单按标签页分区，一次只呈现一个，降低首屏认知负担 -->
+    <section class="dash-section dash-workspace" id="dash-workspace" aria-labelledby="dash-workspace-title">
+      <div class="section-header">
+        <h2 id="dash-workspace-title">创作中心</h2>
+      </div>
+
+      <div class="dash-tabs" role="tablist" aria-label="创作面板切换">
+        <button class="dash-tab is-active" type="button" role="tab" id="tab-profile" aria-controls="panel-profile" aria-selected="true" tabindex="0">
+          <svg class="dash-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          个人资料
+        </button>
+        <button class="dash-tab" type="button" role="tab" id="tab-post" aria-controls="panel-post" aria-selected="false" tabindex="-1">
+          <svg class="dash-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+          发布文章
+        </button>
+        <button class="dash-tab" type="button" role="tab" id="tab-video" aria-controls="panel-video" aria-selected="false" tabindex="-1">
+          <svg class="dash-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
+          上传视频
+        </button>
+        <button class="dash-tab" type="button" role="tab" id="tab-file" aria-controls="panel-file" aria-selected="false" tabindex="-1">
+          <svg class="dash-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+          上传文件
+        </button>
+      </div>
+
+      <div class="dash-panels">
+        <div class="dash-panel is-active" id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0">
+          <form id="profile-form" enctype="multipart/form-data">
+            <div class="profile-preview" id="profile-preview"></div>
+            <div class="form-group">
+              <label for="profile-username">用户名</label>
+              <input type="text" id="profile-username" name="username" maxlength="40" required>
+            </div>
+            <div class="form-group">
+              <label for="profile-bio">个人简介</label>
+              <textarea id="profile-bio" name="bio" maxlength="300" rows="3" placeholder="介绍一下自己"></textarea>
+            </div>
+            <div class="form-group">
+              <label for="profile-avatar">头像</label>
+              <input type="file" id="profile-avatar" name="avatar" accept="image/*">
+            </div>
+            <button type="submit" class="btn btn-primary">保存个人资料</button>
+          </form>
+          <div id="profile-message" class="message" role="status" aria-live="polite"></div>
         </div>
-        <div class="form-group">
-          <label for="file-upload">文件</label>
-          <input type="file" id="file-upload" name="file" required>
+
+        <div class="dash-panel" id="panel-post" role="tabpanel" aria-labelledby="tab-post" tabindex="0" hidden>
+          <form id="post-form">
+            <div class="form-group">
+              <label for="title">标题</label>
+              <input type="text" id="title" name="title" placeholder="请输入文章标题" required>
+            </div>
+            <div class="form-group">
+              <label for="content">内容</label>
+              <textarea id="content" name="content" rows="10" placeholder="请输入文章内容" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">发布文章</button>
+          </form>
+          <div id="post-message" class="message" role="status" aria-live="polite"></div>
         </div>
-        <div class="form-group">
-          <label for="file-password">文件密码（可选）</label>
-          <input type="password" id="file-password" name="password" placeholder="如果需要设置密码，请在此填写">
+
+        <div class="dash-panel" id="panel-video" role="tabpanel" aria-labelledby="tab-video" tabindex="0" hidden>
+          <form id="video-form" enctype="multipart/form-data">
+            <div class="form-group">
+              <label for="video-title">标题</label>
+              <input type="text" id="video-title" name="title" placeholder="请输入视频标题" maxlength="120" required>
+            </div>
+            <div class="form-group">
+              <label for="video-file">视频文件（上传后自动转码为 MP4、WebM 和 HLS）</label>
+              <input type="file" id="video-file" name="video" accept="video/*">
+            </div>
+            <div class="form-group">
+              <label for="video-cover">视频封面（可选，不上传时自动使用首帧）</label>
+              <input type="file" id="video-cover" name="cover" accept="image/*">
+            </div>
+            <div class="form-group">
+              <label for="video-category">视频分区（首页按分区展示）</label>
+              <select id="video-category" name="categoryId">
+                <option value="">选择分区（可选）</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="video-url">或填写视频链接</label>
+              <input type="url" id="video-url" name="videoUrl" placeholder="https://example.com/video.mp4">
+            </div>
+            <button type="submit" class="btn btn-primary">上传视频</button>
+          </form>
+          <div id="video-message" class="message" role="status" aria-live="polite"></div>
         </div>
-        <button type="submit" class="btn btn-primary">上传文件</button>
-      </form>
-      <div id="file-message" class="message"></div>
+
+        <div class="dash-panel" id="panel-file" role="tabpanel" aria-labelledby="tab-file" tabindex="0" hidden>
+          <form id="file-form" enctype="multipart/form-data">
+            <div class="form-group">
+              <label for="file-title">文件标题</label>
+              <input type="text" id="file-title" name="title" placeholder="请输入文件标题" maxlength="120" required>
+            </div>
+            <div class="form-group">
+              <label for="file-upload">文件</label>
+              <input type="file" id="file-upload" name="file" required>
+            </div>
+            <div class="form-group">
+              <label for="file-password">文件密码（可选）</label>
+              <input type="password" id="file-password" name="password" placeholder="如果需要设置密码，请在此填写">
+            </div>
+            <button type="submit" class="btn btn-primary">上传文件</button>
+          </form>
+          <div id="file-message" class="message" role="status" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 账号安全：与内容导航分离，危险操作弱化呈现 -->
+    <section class="dash-section dash-account" aria-labelledby="dash-account-title">
+      <div class="section-header">
+        <h2 id="dash-account-title">账号安全</h2>
+      </div>
+      <div class="dash-account-row">
+        <div class="dash-account-text">
+          <strong>退出登录</strong>
+          <p>结束当前设备上的登录状态，随时可以重新登录。</p>
+        </div>
+        <button class="btn btn-secondary" type="button" onclick="logout()">退出登录</button>
+      </div>
+      <div class="dash-account-row dash-account-row-danger">
+        <div class="dash-account-text">
+          <strong>注销账号</strong>
+          <p>永久删除账号及其全部内容，操作不可恢复。</p>
+        </div>
+        <button class="btn btn-danger" type="button" onclick="deleteAccount()">注销账号</button>
+      </div>
     </section>
 
   </main>
-  
-  <script src="/js/app.js"></script>
+
+  <script src="/js/app.js" defer></script>
   <script>
-    checkAuth();
-    setupDetailCards();
-    document.querySelectorAll('.dashboard-action-btn[data-href]').forEach(button => {
-      button.addEventListener('click', () => {
-        window.location.href = button.dataset.href;
-      });
+    document.addEventListener('DOMContentLoaded', () => {
+      updateNavigation();
+      checkAuth();
+      setupDetailCards();
+      loadProfile();
+      loadUserStats();
+      setupDashboardTabs();
+      document.getElementById('post-form').addEventListener('submit', handlePost);
+      document.getElementById('profile-form').addEventListener('submit', handleProfileUpdate);
+      document.getElementById('video-form').addEventListener('submit', handleVideoUpload);
+      document.getElementById('file-form').addEventListener('submit', handleFileUpload);
+      populateCategorySelect(document.getElementById('video-category'));
     });
-    document.getElementById('post-form').addEventListener('submit', handlePost);
-    loadProfile();
-    document.getElementById('profile-form').addEventListener('submit', handleProfileUpdate);
-    document.getElementById('video-form').addEventListener('submit', handleVideoUpload);
-    document.getElementById('file-form').addEventListener('submit', handleFileUpload);
   </script>
 </body>
 </html>

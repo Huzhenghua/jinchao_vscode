@@ -7,20 +7,16 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <nav class="navbar">
-    <div class="nav-brand">🔥 烬潮</div>
-    <div class="nav-links">
-      <a href="/">首页</a>
-      <form id="global-search-form" class="search-form">
-        <input id="global-search-input" type="search" placeholder="搜索文章 / 视频 / 文件" aria-label="站内搜索">
-        <button type="submit" class="btn btn-secondary">搜索</button>
+  <header class="navbar">
+    <a class="nav-brand" href="/"><svg class="brand-logo" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3 1.072-2.143 2.5-3.736 4.5-5 .5 2.5 1.5 3.5 2.5 5a7.5 7.5 0 1 1-11 0c.383-.476 1-1.5 1-2.5"/></svg>烬潮</a>
+    <div class="nav-center">
+      <form class="nav-search" id="nav-search-form">
+        <input class="nav-search-input" id="nav-search-input" type="search" placeholder="搜索视频 / 文章 / 文件" />
+        <button class="nav-search-btn" type="submit">搜索</button>
       </form>
-      <span class="auth-links">
-        <a class="btn btn-nav" href="/register.html">注册</a>
-        <a class="btn btn-nav btn-nav-active" href="/login.html">登录</a>
-      </span>
     </div>
-  </nav>
+    <div class="nav-actions" id="nav-actions"></div>
+  </header>
 
   <main class="container">
     <a class="back-link" href="/">返回首页</a>

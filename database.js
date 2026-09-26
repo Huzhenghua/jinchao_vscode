@@ -255,6 +255,51 @@ if (!videoColumns.includes('hls_playlist')) {
 if (!videoColumns.includes('view_count')) {
   db.exec('ALTER TABLE videos ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0');
 }
+if (!videoColumns.includes('category_id')) {
+  db.exec('ALTER TABLE videos ADD COLUMN category_id INTEGER');
+}
+
+// 创建视频分区表
+db.exec(`
+  CREATE TABLE IF NOT EXISTS video_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// 预置分区数据
+const existingCategories = db.prepare('SELECT COUNT(*) AS count FROM video_categories').get().count;
+if (existingCategories === 0) {
+  const insertCategory = db.prepare('INSERT INTO video_categories (name) VALUES (?)');
+  ['科技', '游戏', '生活', '音乐', '学习', '娱乐', '其他'].forEach(name => insertCategory.run(name));
+}
+
+// 创建关注关系表
+db.exec(`
+  CREATE TABLE IF NOT EXISTS follows (
+    user_id INTEGER NOT NULL,
+    followed_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, followed_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (followed_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`);
+
+// 创建弹幕表
+db.exec(`
+  CREATE TABLE IF NOT EXISTS barrages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    offset_ms INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`);
 
 const postColumns = db.prepare('PRAGMA table_info(posts)').all().map(column => column.name);
 if (!postColumns.includes('view_count')) {
@@ -278,6 +323,20 @@ if (!vcommentColumns.includes('reply_to')) {
 const messageColumns = db.prepare('PRAGMA table_info(messages)').all().map(column => column.name);
 if (!messageColumns.includes('read_at')) {
   db.exec('ALTER TABLE messages ADD COLUMN read_at DATETIME');
+}
+
+const barrageColumns = db.prepare('PRAGMA table_info(barrages)').all().map(column => column.name);
+if (!barrageColumns.includes('color')) {
+  db.exec("ALTER TABLE barrages ADD COLUMN color TEXT NOT NULL DEFAULT '#ffffff'");
+}
+if (!barrageColumns.includes('font_size')) {
+  db.exec('ALTER TABLE barrages ADD COLUMN font_size INTEGER NOT NULL DEFAULT 25');
+}
+if (!barrageColumns.includes('speed')) {
+  db.exec("ALTER TABLE barrages ADD COLUMN speed TEXT NOT NULL DEFAULT 'normal'");
+}
+if (!barrageColumns.includes('updated_at')) {
+  db.exec('ALTER TABLE barrages ADD COLUMN updated_at DATETIME');
 }
 
 module.exports = db;

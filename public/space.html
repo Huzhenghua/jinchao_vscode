@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>站内搜索 - 烬潮</title>
+  <title>UP 主主页 - 烬潮</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -19,28 +19,28 @@
   </header>
 
   <main class="container">
-    <section class="search-page-header">
-      <p class="eyebrow">SITE SEARCH</p>
-      <h1>搜索结果</h1>
-      <p>文章、视频和文件已经分开整理，查找内容更清晰。</p>
-      <label class="browse-sort-label">排序 <select id="search-sort"><option value="hot">热度优先</option><option value="latest">最新发布</option></select></label>
-    </section>
-
-    <div id="search-results" class="search-results">
+    <div class="space-header" id="space-header"></div>
+    <div class="video-grid" id="space-videos">
       <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
       <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
-      <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
-      <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
-      <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
+      <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+      <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+      <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+      <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+      <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+      <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
     </div>
   </main>
 
   <script src="/js/app.js"></script>
   <script>
+    document.getElementById('nav-search-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const q = document.getElementById('nav-search-input').value.trim();
+      window.location.href = '/search.html?q=' + encodeURIComponent(q);
+    });
     updateNavigation();
-    setupGlobalSearch();
-    setupDetailCards();
-    loadSearchResults();
+    loadSpacePage();
   </script>
 </body>
 </html>

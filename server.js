@@ -16,6 +16,8 @@ const {
   validateEmail,
   validateRegistrationInput,
   validatePostInput,
+  validateBarrageCreate,
+  validateBarrageUpdate,
 } = require('./validation');
 
 const app = express();
@@ -179,6 +181,15 @@ const authLimiter = rateLimit({
   handler: (req, res) => res.json({ success: false, message: '请求过于频繁，请稍后再试' }),
 });
 
+// 弹幕写接口（发送 / 编辑 / 删除）速率限制
+const barrageLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => res.json({ success: false, message: '请求过于频繁，请稍后再试' }),
+});
+
 function utcNow() {
   return new Date().toISOString();
 }
@@ -212,6 +223,12 @@ function checkFavorited(userId, contentType, contentId) {
   const row = db.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND content_type = ? AND content_id = ?')
     .get(userId, contentType, contentId);
   return row ? 1 : 0;
+}
+
+// 统计某个内容被收藏的总次数 (post/video/file)
+function countFavorites(contentType, contentId) {
+  return db.prepare('SELECT COUNT(*) AS count FROM favorites WHERE content_type = ? AND content_id = ?')
+    .get(contentType, contentId).count;
 }
 
 // 记录内容浏览历史
@@ -581,7 +598,7 @@ app.get('/api/posts/:id', (req, res) => {
 
   if (!post) return res.status(404).json({ success: false, message: '文章不存在' });
   if (req.session.userId) recordView(req.session.userId, 'post', post.id);
-  res.json({ ...post, avatarUrl: avatarUrl(post.avatar_filename), favorited: checkFavorited(req.session.userId, 'post', post.id) });
+  res.json({ ...post, avatarUrl: avatarUrl(post.avatar_filename), favorited: checkFavorited(req.session.userId, 'post', post.id), favorite_count: countFavorites('post', post.id) });
 });
 
 app.get('/api/posts/:id/comments', (req, res) => {
@@ -742,6 +759,7 @@ app.get('/api/files/:id', (req, res) => {
     protected: Boolean(file.password_hash),
     owner: req.session.userId === file.user_id,
     favorited: checkFavorited(req.session.userId, 'file', file.id),
+    favorite_count: countFavorites('file', file.id),
     downloadUrl: req.session.userId === file.user_id || !file.password_hash
       ? `/api/files/${file.id}/download`
       : null,
@@ -911,7 +929,12 @@ app.get('/api/users/:id', (req, res) => {
     SELECT u.id, u.username, u.bio, u.avatar_filename, u.created_at,
       (SELECT COUNT(*) FROM posts WHERE user_id = u.id) AS post_count,
       (SELECT COUNT(*) FROM videos WHERE user_id = u.id) AS video_count,
-      (SELECT COUNT(*) FROM files WHERE user_id = u.id) AS file_count
+      (SELECT COUNT(*) FROM files WHERE user_id = u.id) AS file_count,
+      (SELECT COUNT(*) FROM follows WHERE followed_id = u.id) AS follower_count,
+      (SELECT COUNT(*) FROM follows WHERE user_id = u.id) AS following_count,
+      (SELECT COALESCE(SUM(vl_cnt.cnt),0) FROM (
+        SELECT COUNT(*) AS cnt FROM video_likes vl JOIN videos v ON v.id = vl.video_id WHERE v.user_id = u.id
+      ) AS vl_cnt) AS like_count
     FROM users u WHERE u.id = ?
   `).get(targetId);
 
@@ -921,11 +944,15 @@ app.get('/api/users/:id', (req, res) => {
     ? Boolean(db.prepare('SELECT 1 FROM friendships WHERE user_a = ? AND user_b = ?')
       .get(Math.min(req.session.userId, targetId), Math.max(req.session.userId, targetId)))
     : false;
+  const isFollowing = req.session.userId
+    ? Boolean(db.prepare('SELECT 1 FROM follows WHERE user_id = ? AND followed_id = ?').get(req.session.userId, targetId))
+    : false;
 
   res.json({
     success: true,
     user: { ...user, avatarUrl: avatarUrl(user.avatar_filename) },
     isFriend,
+    isFollowing,
     isSelf: req.session.userId === targetId,
   });
 });
@@ -934,19 +961,81 @@ app.get('/api/users/:id', (req, res) => {
 app.get('/api/videos', (req, res) => {
   const { limit, sort } = listOptions(req);
   const userId = req.query.userId ? Number(req.query.userId) : null;
-  const userFilter = userId ? 'WHERE v.user_id = ?' : '';
-  // 绑定顺序必须与 SQL 中的占位符顺序一致：收藏子查询、liked 判断、userFilter、LIMIT
+  const category = req.query.category ? Number(req.query.category) : null;
+  const userFilter = userId ? 'AND v.user_id = ?' : '';
+  const categoryFilter = category ? 'AND v.category_id = ?' : '';
+  // 绑定顺序必须与 SQL 中的占位符顺序一致：收藏子查询、liked 判断、userFilter、categoryFilter、LIMIT
   const bindVars = [
     ...(req.session.userId ? [req.session.userId] : []),
     req.session.userId || null,
     req.session.userId || null,
     ...(userId ? [userId] : []),
+    ...(category ? [category] : []),
     limit,
   ];
   const orderBy = sort === 'hot'
     ? 'v.view_count DESC, like_count DESC, comment_count DESC, v.created_at DESC'
     : 'v.created_at DESC';
-  const videos = db.prepare(`\n    SELECT v.id, v.user_id, v.title, v.filename, v.original_name, v.mime_type, v.source_url,\n      v.mp4_filename, v.webm_filename, v.poster_filename, v.hls_playlist, v.view_count, v.created_at,\n      u.username, u.avatar_filename,\n       (SELECT COUNT(*) FROM video_likes WHERE video_id = v.id) AS like_count,\n       (SELECT COUNT(*) FROM video_comments WHERE video_id = v.id) AS comment_count,\n       ${req.session.userId ? `(SELECT COUNT(*) FROM favorites WHERE user_id = ? AND content_type = 'video' AND content_id = v.id) AS favorited` : '0 AS favorited'},\n       CASE WHEN ? IS NOT NULL AND EXISTS (\n         SELECT 1 FROM video_likes WHERE video_id = v.id AND user_id = ?\n       ) THEN 1 ELSE 0 END AS liked\n    FROM videos v\n    JOIN users u ON u.id = v.user_id\n    ${userFilter}\n    ORDER BY ${orderBy}\n    LIMIT ?\n  `).all(...bindVars);
+  const videos = db.prepare(`
+    SELECT v.id, v.user_id, v.title, v.filename, v.original_name, v.mime_type, v.source_url,
+      v.mp4_filename, v.webm_filename, v.poster_filename, v.hls_playlist, v.view_count, v.created_at,
+      v.category_id, vc.name AS category_name,
+      u.username, u.avatar_filename,
+       (SELECT COUNT(*) FROM video_likes WHERE video_id = v.id) AS like_count,
+       (SELECT COUNT(*) FROM video_comments WHERE video_id = v.id) AS comment_count,
+       ${req.session.userId ? `(SELECT COUNT(*) FROM favorites WHERE user_id = ? AND content_type = 'video' AND content_id = v.id) AS favorited` : '0 AS favorited'},
+       CASE WHEN ? IS NOT NULL AND EXISTS (
+         SELECT 1 FROM video_likes WHERE video_id = v.id AND user_id = ?
+       ) THEN 1 ELSE 0 END AS liked
+    FROM videos v
+    JOIN users u ON u.id = v.user_id
+    LEFT JOIN video_categories vc ON vc.id = v.category_id
+    WHERE 1=1 ${userFilter} ${categoryFilter}
+    ORDER BY ${orderBy}
+    LIMIT ?
+  `).all(...bindVars);
+
+  res.json(videos.map(video => ({
+    ...video,
+    url: video.source_url || mediaUrl(video.mp4_filename || video.filename),
+    mp4Url: video.source_url || mediaUrl(video.mp4_filename || video.filename),
+    webmUrl: mediaUrl(video.webm_filename),
+    posterUrl: mediaUrl(video.poster_filename),
+    hlsUrl: mediaUrl(getHlsPlaylist(video)),
+    liked: Boolean(video.liked),
+    avatarUrl: avatarUrl(video.avatar_filename),
+  })));
+});
+
+// 视频分区列表
+app.get('/api/videos/categories', (req, res) => {
+  const categories = db.prepare('SELECT id, name FROM video_categories ORDER BY id').all();
+  res.json(categories);
+});
+
+// 首页推荐视频流（播放量加权 + 时间衰减）
+app.get('/api/videos/recommend', (req, res) => {
+  const { limit } = listOptions(req);
+  const category = req.query.category ? Number(req.query.category) : null;
+  const categoryFilter = category ? 'AND v.category_id = ?' : '';
+  const bindVars = category ? [category, limit] : [limit];
+  const videos = db.prepare(`
+    SELECT v.id, v.user_id, v.title, v.filename, v.original_name, v.mime_type, v.source_url,
+      v.mp4_filename, v.webm_filename, v.poster_filename, v.hls_playlist, v.view_count, v.created_at,
+      v.category_id, vc.name AS category_name,
+      u.username, u.avatar_filename,
+      (SELECT COUNT(*) FROM video_likes WHERE video_id = v.id) AS like_count,
+      (SELECT COUNT(*) FROM video_comments WHERE video_id = v.id) AS comment_count,
+      (CASE WHEN ? IS NOT NULL AND EXISTS (
+        SELECT 1 FROM video_likes WHERE video_id = v.id AND user_id = ?
+      ) THEN 1 ELSE 0 END) AS liked
+    FROM videos v
+    JOIN users u ON u.id = v.user_id
+    LEFT JOIN video_categories vc ON vc.id = v.category_id
+    WHERE 1=1 ${categoryFilter}
+    ORDER BY (v.view_count * 1.0 / (julianday('now') - julianday(v.created_at) + 1) + COALESCE((SELECT COUNT(*) FROM video_likes WHERE video_id = v.id),0)) DESC
+    LIMIT ?
+  `).all(req.session.userId || null, req.session.userId || null, ...bindVars);
 
   res.json(videos.map(video => ({
     ...video,
@@ -962,7 +1051,21 @@ app.get('/api/videos', (req, res) => {
 
 app.get('/api/videos/:id', (req, res) => {
   db.prepare('UPDATE videos SET view_count = view_count + 1 WHERE id = ?').run(req.params.id);
-  const video = db.prepare(`\n    SELECT v.id, v.user_id, v.title, v.filename, v.original_name, v.mime_type, v.source_url,\n      v.mp4_filename, v.webm_filename, v.poster_filename, v.hls_playlist, v.view_count, v.created_at,\n      u.username, u.avatar_filename,\n      (SELECT COUNT(*) FROM video_likes WHERE video_id = v.id) AS like_count,\n      (SELECT COUNT(*) FROM video_comments WHERE video_id = v.id) AS comment_count,\n      CASE WHEN ? IS NOT NULL AND EXISTS (\n        SELECT 1 FROM video_likes WHERE video_id = v.id AND user_id = ?\n      ) THEN 1 ELSE 0 END AS liked\n    FROM videos v\n    JOIN users u ON u.id = v.user_id\n    WHERE v.id = ?\n  `).get(req.session.userId || null, req.session.userId || null, req.params.id);
+  const video = db.prepare(`
+    SELECT v.id, v.user_id, v.title, v.filename, v.original_name, v.mime_type, v.source_url,
+      v.mp4_filename, v.webm_filename, v.poster_filename, v.hls_playlist, v.view_count, v.created_at,
+      v.category_id, vc.name AS category_name,
+      u.username, u.avatar_filename,
+      (SELECT COUNT(*) FROM video_likes WHERE video_id = v.id) AS like_count,
+      (SELECT COUNT(*) FROM video_comments WHERE video_id = v.id) AS comment_count,
+      CASE WHEN ? IS NOT NULL AND EXISTS (
+        SELECT 1 FROM video_likes WHERE video_id = v.id AND user_id = ?
+      ) THEN 1 ELSE 0 END AS liked
+    FROM videos v
+    JOIN users u ON u.id = v.user_id
+    LEFT JOIN video_categories vc ON vc.id = v.category_id
+    WHERE v.id = ?
+  `).get(req.session.userId || null, req.session.userId || null, req.params.id);
 
   if (!video) return res.status(404).json({ success: false, message: '视频不存在' });
   if (req.session.userId) recordView(req.session.userId, 'video', video.id);
@@ -975,6 +1078,7 @@ app.get('/api/videos/:id', (req, res) => {
     hlsUrl: mediaUrl(getHlsPlaylist(video)),
     liked: Boolean(video.liked),
     favorited: checkFavorited(req.session.userId, 'video', video.id),
+    favorite_count: countFavorites('video', video.id),
     avatarUrl: avatarUrl(video.avatar_filename),
   });
 });
@@ -994,6 +1098,7 @@ app.post('/api/videos', (req, res) => {
     const coverFile = req.files?.cover?.[0];
     const title = String(req.body.title || '').trim();
     const sourceUrl = String(req.body.videoUrl || '').trim();
+    const categoryId = req.body.categoryId ? Number(req.body.categoryId) : null;
     let parsedUrl = null;
     try {
       if (sourceUrl) parsedUrl = new URL(sourceUrl);
@@ -1043,8 +1148,8 @@ app.post('/api/videos', (req, res) => {
     }
 
     db.prepare(`
-      INSERT INTO videos (user_id, title, filename, original_name, mime_type, source_url, mp4_filename, webm_filename, poster_filename, hls_playlist)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO videos (user_id, title, filename, original_name, mime_type, source_url, mp4_filename, webm_filename, poster_filename, hls_playlist, category_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       req.session.userId,
       title,
@@ -1056,6 +1161,7 @@ app.post('/api/videos', (req, res) => {
       media.webmFilename || null,
       media.posterFilename || null,
       media.hlsPlaylist || null,
+      categoryId,
     );
     res.json({ success: true, message: parsedUrl ? '视频链接发布成功' : '视频上传并转码成功' });
   });
@@ -1080,6 +1186,256 @@ app.delete('/api/videos/:id', (req, res) => {
     fs.rmSync(path.join(videoDirectory, path.dirname(video.hls_playlist)), { recursive: true, force: true });
   }
   res.json({ success: true, message: '视频已下架' });
+});
+
+// ===== 关注系统 =====
+
+// 查询是否已关注 + 粉丝数
+app.get('/api/follows/status/:userId', (req, res) => {
+  const targetId = Number(req.params.userId);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    return res.status(400).json({ success: false, message: '用户不存在' });
+  }
+  const userExists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(targetId);
+  if (!userExists) return res.status(404).json({ success: false, message: '用户不存在' });
+
+  const followerCount = db.prepare('SELECT COUNT(*) AS c FROM follows WHERE followed_id = ?').get(targetId).c;
+  const isFollowing = req.session.userId
+    ? Boolean(db.prepare('SELECT 1 FROM follows WHERE user_id = ? AND followed_id = ?').get(req.session.userId, targetId))
+    : false;
+
+  res.json({ success: true, isFollowing, follower_count: followerCount });
+});
+
+// 关注 / 取消关注（toggle）
+app.post('/api/follows/:userId', (req, res) => {
+  if (!req.session.userId) return res.json({ success: false, message: '请先登录' });
+  const targetId = Number(req.params.userId);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    return res.status(400).json({ success: false, message: '用户不存在' });
+  }
+  if (targetId === req.session.userId) {
+    return res.json({ success: false, message: '不能关注自己' });
+  }
+  const userExists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(targetId);
+  if (!userExists) return res.status(404).json({ success: false, message: '用户不存在' });
+
+  const existing = db.prepare('SELECT 1 FROM follows WHERE user_id = ? AND followed_id = ?').get(req.session.userId, targetId);
+  let isFollowing;
+  if (existing) {
+    db.prepare('DELETE FROM follows WHERE user_id = ? AND followed_id = ?').run(req.session.userId, targetId);
+    isFollowing = false;
+  } else {
+    db.prepare('INSERT INTO follows (user_id, followed_id) VALUES (?, ?)').run(req.session.userId, targetId);
+    isFollowing = true;
+    createNotification(targetId, req.session.userId, 'follow', null, null, null, `/space.html?user=${req.session.userId}`);
+  }
+
+  const followerCount = db.prepare('SELECT COUNT(*) AS c FROM follows WHERE followed_id = ?').get(targetId).c;
+  res.json({ success: true, isFollowing, follower_count: followerCount, message: isFollowing ? '关注成功' : '已取消关注' });
+});
+
+// 关注动态（已关注用户最新视频流）
+app.get('/api/follows', (req, res) => {
+  if (!req.session.userId) return res.json({ success: false, message: '请先登录' });
+  const { limit } = listOptions(req);
+  const videos = db.prepare(`
+    SELECT v.id, v.user_id, v.title, v.filename, v.original_name, v.mime_type, v.source_url,
+      v.mp4_filename, v.webm_filename, v.poster_filename, v.hls_playlist, v.view_count, v.created_at,
+      v.category_id, vc.name AS category_name,
+      u.username, u.avatar_filename,
+      (SELECT COUNT(*) FROM video_likes WHERE video_id = v.id) AS like_count,
+      (SELECT COUNT(*) FROM video_comments WHERE video_id = v.id) AS comment_count
+    FROM videos v
+    JOIN users u ON u.id = v.user_id
+    LEFT JOIN video_categories vc ON vc.id = v.category_id
+    WHERE v.user_id IN (SELECT followed_id FROM follows WHERE user_id = ?)
+    ORDER BY v.created_at DESC
+    LIMIT ?
+  `).all(req.session.userId, limit);
+
+  res.json(videos.map(video => ({
+    ...video,
+    url: video.source_url || mediaUrl(video.mp4_filename || video.filename),
+    mp4Url: video.source_url || mediaUrl(video.mp4_filename || video.filename),
+    webmUrl: mediaUrl(video.webm_filename),
+    posterUrl: mediaUrl(video.poster_filename),
+    hlsUrl: mediaUrl(getHlsPlaylist(video)),
+    avatarUrl: avatarUrl(video.avatar_filename),
+  })));
+});
+
+// ===== 弹幕系统 =====
+
+// 判断用户是否为管理员：users.role 为 admin，或邮箱等于配置的管理员邮箱
+function isAdminUser(userId) {
+  if (!userId) return false;
+
+  const user = db.prepare('SELECT role, email FROM users WHERE id = ?').get(userId);
+  if (!user) return false;
+
+  if (user.role === 'admin') return true;
+  return Boolean(config.adminEmail) && normalizeEmail(user.email) === normalizeEmail(config.adminEmail);
+}
+
+// 获取视频弹幕
+app.get('/api/barrages/:videoId', (req, res) => {
+  const videoId = Number(req.params.videoId);
+  if (!Number.isInteger(videoId) || videoId <= 0) {
+    return res.status(400).json({ success: false, message: '视频不存在' });
+  }
+  const limit = Math.min(Number(req.query.limit) || 200, 500);
+  const barrages = db.prepare(`
+    SELECT b.id, b.user_id, b.content, b.offset_ms, b.color, b.font_size, b.speed, b.created_at, b.updated_at, u.username, u.avatar_filename
+    FROM barrages b
+    JOIN users u ON u.id = b.user_id
+    WHERE b.video_id = ?
+    ORDER BY b.offset_ms ASC, b.created_at ASC
+    LIMIT ?
+  `).all(videoId, limit);
+
+  const viewerId = req.session.userId || null;
+  const viewerIsAdmin = isAdminUser(viewerId);
+
+  res.json(barrages.map(b => ({
+    ...b,
+    avatarUrl: avatarUrl(b.avatar_filename),
+    isOwn: viewerId === b.user_id,
+    canEdit: viewerId === b.user_id || viewerIsAdmin,
+  })));
+});
+
+// 发送弹幕
+app.post('/api/barrages', barrageLimiter, (req, res) => {
+  if (!req.session.userId) return res.json({ success: false, message: '请先登录' });
+
+  const videoId = Number(req.body.videoId);
+  if (!Number.isInteger(videoId) || videoId <= 0) {
+    return res.status(400).json({ success: false, message: '视频不存在' });
+  }
+
+  const result = validateBarrageCreate({
+    content: req.body.content,
+    offsetMs: req.body.offsetMs,
+    color: req.body.color,
+    fontSize: req.body.fontSize,
+    speed: req.body.speed,
+  });
+  if (!result.valid) return res.status(400).json({ success: false, message: result.message });
+
+  const videoExists = db.prepare('SELECT 1 FROM videos WHERE id = ?').get(videoId);
+  if (!videoExists) return res.status(404).json({ success: false, message: '视频不存在' });
+
+  const info = db.prepare(`
+    INSERT INTO barrages (video_id, user_id, content, offset_ms, color, font_size, speed)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(videoId, req.session.userId, result.content, result.offsetMs, result.color, result.fontSize, result.speed);
+
+  const barrage = db.prepare(`
+    SELECT id, video_id, user_id, content, offset_ms, color, font_size, speed, created_at, updated_at
+    FROM barrages WHERE id = ?
+  `).get(info.lastInsertRowid);
+
+  res.json({
+    success: true,
+    message: '弹幕发送成功',
+    barrage: {
+      ...barrage,
+      isOwn: true,
+      canEdit: true,
+    },
+  });
+});
+
+// 修改弹幕（仅发送者本人或管理员）
+app.patch('/api/barrages/:id', barrageLimiter, (req, res) => {
+  if (!req.session.userId) return res.json({ success: false, message: '请先登录' });
+
+  const barrageId = Number(req.params.id);
+  if (!Number.isInteger(barrageId) || barrageId <= 0) {
+    return res.status(404).json({ success: false, message: '弹幕不存在' });
+  }
+
+  const barrage = db.prepare('SELECT id, user_id FROM barrages WHERE id = ?').get(barrageId);
+  if (!barrage) return res.status(404).json({ success: false, message: '弹幕不存在' });
+
+  const isOwn = req.session.userId === barrage.user_id;
+  if (!isOwn && !isAdminUser(req.session.userId)) {
+    return res.status(403).json({ success: false, message: '无权修改该弹幕' });
+  }
+
+  const result = validateBarrageUpdate({
+    content: req.body.content,
+    color: req.body.color,
+    fontSize: req.body.fontSize,
+    speed: req.body.speed,
+  });
+  if (!result.valid) return res.status(400).json({ success: false, message: result.message });
+
+  // 动态拼 SQL：只更新请求中携带的字段
+  const assignments = [];
+  const params = [];
+  if (result.fields.content !== undefined) {
+    assignments.push('content = ?');
+    params.push(result.fields.content);
+  }
+  if (result.fields.color !== undefined) {
+    assignments.push('color = ?');
+    params.push(result.fields.color);
+  }
+  if (result.fields.fontSize !== undefined) {
+    assignments.push('font_size = ?');
+    params.push(result.fields.fontSize);
+  }
+  if (result.fields.speed !== undefined) {
+    assignments.push('speed = ?');
+    params.push(result.fields.speed);
+  }
+  assignments.push('updated_at = ?');
+  params.push(utcNow());
+  params.push(barrageId);
+
+  db.prepare(`UPDATE barrages SET ${assignments.join(', ')} WHERE id = ?`).run(...params);
+
+  const updated = db.prepare(`
+    SELECT b.id, b.user_id, b.content, b.offset_ms, b.color, b.font_size, b.speed, b.created_at, b.updated_at, u.username, u.avatar_filename
+    FROM barrages b
+    JOIN users u ON u.id = b.user_id
+    WHERE b.id = ?
+  `).get(barrageId);
+
+  res.json({
+    success: true,
+    message: '弹幕已更新',
+    barrage: {
+      ...updated,
+      avatarUrl: avatarUrl(updated.avatar_filename),
+      isOwn: req.session.userId === updated.user_id,
+      canEdit: true,
+    },
+  });
+});
+
+// 删除弹幕（仅发送者本人或管理员，硬删除）
+app.delete('/api/barrages/:id', barrageLimiter, (req, res) => {
+  if (!req.session.userId) return res.json({ success: false, message: '请先登录' });
+
+  const barrageId = Number(req.params.id);
+  if (!Number.isInteger(barrageId) || barrageId <= 0) {
+    return res.status(404).json({ success: false, message: '弹幕不存在' });
+  }
+
+  const barrage = db.prepare('SELECT id, user_id FROM barrages WHERE id = ?').get(barrageId);
+  if (!barrage) return res.status(404).json({ success: false, message: '弹幕不存在' });
+
+  const isOwn = req.session.userId === barrage.user_id;
+  if (!isOwn && !isAdminUser(req.session.userId)) {
+    return res.status(403).json({ success: false, message: '无权删除该弹幕' });
+  }
+
+  db.prepare('DELETE FROM barrages WHERE id = ?').run(barrageId);
+
+  res.json({ success: true, message: '弹幕已删除' });
 });
 
 // 登录用户点赞或取消点赞
@@ -1218,6 +1574,32 @@ app.get('/api/user', (req, res) => {
 
   const user = db.prepare('SELECT id, email, username, bio, avatar_filename, role, created_at FROM users WHERE id = ?').get(req.session.userId);
   res.json({ success: true, user: { ...user, avatarUrl: avatarUrl(user.avatar_filename) } });
+});
+
+// 获取当前用户的创作与互动概览统计
+app.get('/api/user/stats', (req, res) => {
+  if (!req.session.userId) {
+    return res.json({ success: false, message: '请先登录' });
+  }
+
+  const userId = req.session.userId;
+  const count = (sql, ...params) => db.prepare(sql).get(...params).total;
+
+  const stats = {
+    videos: count('SELECT COUNT(*) AS total FROM videos WHERE user_id = ?', userId),
+    posts: count('SELECT COUNT(*) AS total FROM posts WHERE user_id = ?', userId),
+    files: count('SELECT COUNT(*) AS total FROM files WHERE user_id = ?', userId),
+    followers: count('SELECT COUNT(*) AS total FROM follows WHERE followed_id = ?', userId),
+    following: count('SELECT COUNT(*) AS total FROM follows WHERE user_id = ?', userId),
+    likes: count(
+      'SELECT COUNT(*) AS total FROM video_likes JOIN videos ON videos.id = video_likes.video_id WHERE videos.user_id = ?',
+      userId
+    ),
+    favorites: count('SELECT COUNT(*) AS total FROM favorites WHERE user_id = ?', userId),
+    unreadNotifications: count('SELECT COUNT(*) AS total FROM notifications WHERE user_id = ? AND is_read = 0', userId)
+  };
+
+  res.json({ success: true, stats });
 });
 
 app.put('/api/user/profile', avatarUpload.single('avatar'), (req, res) => {
@@ -1441,7 +1823,8 @@ app.post('/api/favorites', (req, res) => {
       .run(req.session.userId, contentType, contentId);
   }
   const favorited = !existing;
-  res.json({ success: true, favorited, message: favorited ? '已加入收藏' : '已取消收藏' });
+  const favoriteCount = countFavorites(contentType, contentId);
+  res.json({ success: true, favorited, favoriteCount, message: favorited ? '已加入收藏' : '已取消收藏' });
 });
 
 // 我的收藏列表

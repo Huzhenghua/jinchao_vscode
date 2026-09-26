@@ -3,61 +3,100 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>烬潮 - 博客平台</title>
+  <title>烬潮 - B站风格视频网站</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <nav class="navbar">
-    <div class="nav-brand">🔥 烬潮</div>
-    <div class="nav-links">
-      <a href="/">首页</a>
-      <form id="global-search-form" class="search-form">
-        <input id="global-search-input" type="search" placeholder="搜索文章 / 视频 / 文件" aria-label="站内搜索">
-        <button type="submit" class="btn btn-secondary">搜索</button>
+  <header class="navbar">
+    <a class="nav-brand" href="/"><svg class="brand-logo" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3 1.072-2.143 2.5-3.736 4.5-5 .5 2.5 1.5 3.5 2.5 5a7.5 7.5 0 1 1-11 0c.383-.476 1-1.5 1-2.5"/></svg>烬潮</a>
+    <div class="nav-center">
+      <form class="nav-search" id="nav-search-form">
+        <input class="nav-search-input" id="nav-search-input" type="search" placeholder="搜索视频 / 文章 / 文件" />
+        <button class="nav-search-btn" type="submit">搜索</button>
       </form>
-      <span class="auth-links"><a class="btn btn-nav" href="/register.html">注册</a><a class="btn btn-nav btn-nav-active" href="/login.html">登录</a></span>
     </div>
-  </nav>
-  
+    <div class="nav-actions" id="nav-actions"></div>
+  </header>
+
   <main class="container">
-    <section class="hero">
-      <h1>欢迎来到烬潮</h1>
-      <p>一个简洁优雅的博客平台</p>
-      <div class="hero-actions">
-        <a class="btn btn-hero-primary" href="#videos-list">浏览视频</a>
-        <a class="btn btn-hero-secondary" href="/register.html">加入烬潮</a>
-      </div>
-    </section>
-    
-    <section class="posts-section">
-      <div class="section-heading"><h2>最新文章</h2><a class="more-link" href="/browse.html?type=post" target="_blank" rel="noopener">更多文章</a></div>
-      <div id="posts-list" class="posts-list">
-        <p class="loading">加载中...</p>
+
+    <!-- ========== Hero 横幅 ========== -->
+    <section class="hero-banner">
+      <div class="hero-content">
+        <h1 class="hero-title">烬潮 · 看视频、追动态、发弹幕</h1>
+        <p class="hero-subtitle">视频、文章、文件一站直达，弹幕齐飞不孤单——和同好一起，把热爱追到底。</p>
+        <div class="hero-actions">
+          <a class="hero-btn hero-btn-primary" href="/browse.html?type=video">开始观看</a>
+          <a class="hero-btn hero-btn-outline" href="/dashboard.html">发布作品</a>
+        </div>
       </div>
     </section>
 
+    <!-- ========== 分区Tab切换区 ========== -->
+    <div id="category-tabs" class="category-tabs">
+      <button class="category-tab active" data-category="">全部</button>
+    </div>
+
+    <!-- ========== 视频推荐流 (第一屏) ========== -->
     <section class="videos-section">
-      <div class="section-heading"><h2>视频广场</h2><a class="more-link" href="/browse.html?type=video" target="_blank" rel="noopener">更多视频</a></div>
-      <div id="videos-list" class="videos-list">
-        <p class="loading">加载中...</p>
+      <div class="section-header"><h2>视频推荐</h2><a class="more-link" href="/browse.html?type=video">更多 →</a></div>
+      <div id="videos-list" class="video-grid videos-list">
+        <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-cover"></div><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-up"></div></div>
       </div>
     </section>
 
-    <section class="files-section">
-      <div class="section-heading"><h2>热门文件</h2><a class="more-link" href="/browse.html?type=file" target="_blank" rel="noopener">更多文件</a></div>
-      <div id="files-list" class="files-list"><p class="loading">加载中...</p></div>
+    <!-- ========== 文章区域 (可折叠) ========== -->
+    <section class="collapse-section">
+      <div class="collapse-header" onclick="toggleCollapse(this)">
+        <div class="section-header"><h2>最新文章</h2><a class="more-link" href="/browse.html?type=post" target="_blank" rel="noopener">更多 →</a></div>
+        <span class="arrow" aria-hidden="true">▼</span>
+      </div>
+      <div class="collapse-body">
+        <div id="posts-list" class="posts-list">
+          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 文件区域 (可折叠) ========== -->
+    <section class="collapse-section">
+      <div class="collapse-header" onclick="toggleCollapse(this)">
+        <div class="section-header"><h2>热门文件</h2><a class="more-link" href="/browse.html?type=file" target="_blank" rel="noopener">更多 →</a></div>
+        <span class="arrow" aria-hidden="true">▼</span>
+      </div>
+      <div class="collapse-body">
+        <div id="files-list" class="files-list">
+          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
+          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
+        </div>
+      </div>
     </section>
 
   </main>
-  
+
+  <!-- ========== 底部脚本区 ========== -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
   <script src="/js/app.js"></script>
   <script>
     updateNavigation();
     setupDetailCards();
+    loadCategoriesAndTabs(); // 加载分区Tab动态按钮
     const homeLimit = getHomeLimit();
     loadPosts('posts-list', homeLimit, 'hot');
-    loadVideos('videos-list', homeLimit, 'hot');
+
+    // 首页视频推荐流(全局渲染到 #videos-list)
+    loadRecommendVideos();
+
     loadFiles('files-list', homeLimit, 'hot');
     setupGlobalSearch();
   </script>
