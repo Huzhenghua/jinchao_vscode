@@ -91,7 +91,8 @@ body.dark {
   --bg-player: #000;
   --text: #ffffff;
   --text-secondary: #b9bbc0;
-  --text-muted: #83878e;
+  /* 深色态下与 --bg-card 的对比度需 ≥4.5:1（WCAG 2.1 AA 正文对比度），#83878e 仅 3.79:1 */
+  --text-muted: #9aa0a8;
   --border: #44464b;
   --border-light: #323438;
   --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -3939,5 +3940,1678 @@ body.dark .barrage-choice.is-active {
     left: var(--space-3);
     right: auto;
     animation: none;
+  }
+}
+
+/* ===== 多文件上传（仪表盘「文件」面板） ===== */
+
+/* --- 整批总体进度条 --- */
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.upload-progress[hidden] {
+  display: none;
+}
+
+.upload-progress-track {
+  flex: 1;
+  min-width: 0;
+  height: 8px;
+  overflow: hidden;
+  background: var(--border-light);
+  border-radius: var(--radius-full);
+}
+
+.upload-progress-bar {
+  width: 0;
+  height: 100%;
+  background: var(--primary-gradient);
+  border-radius: var(--radius-full);
+  transition: width 0.2s ease;
+}
+
+.upload-progress-text {
+  flex: none;
+  min-width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* --- 每个文件的状态队列 --- */
+.upload-queue {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  list-style: none;
+}
+
+.upload-queue:empty {
+  display: none;
+}
+
+.upload-queue-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.upload-queue-item.is-uploading {
+  border-left-color: var(--primary);
+}
+
+.upload-queue-item.is-done {
+  border-left-color: var(--success);
+}
+
+.upload-queue-item.is-error {
+  border-left-color: var(--danger);
+}
+
+.upload-queue-thumb,
+.upload-queue-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+/* 缩略图同样只 contain，不裁切 */
+.upload-queue-thumb {
+  object-fit: contain;
+}
+
+.upload-queue-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-md);
+}
+
+.upload-queue-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.upload-queue-size {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.upload-queue-status {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.upload-queue-item.is-ready .upload-queue-status {
+  color: var(--text-muted);
+}
+
+.upload-queue-item.is-uploading .upload-queue-status {
+  color: var(--primary);
+}
+
+.upload-queue-item.is-done .upload-queue-status {
+  color: var(--success);
+}
+
+.upload-queue-item.is-error .upload-queue-status {
+  color: var(--danger);
+}
+
+/* --- 格式错误清单 --- */
+.upload-rejected {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--warning-light);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.upload-rejected[hidden] {
+  display: none;
+}
+
+.upload-rejected-title {
+  margin-bottom: var(--space-1);
+  font-weight: var(--fw-semibold);
+}
+
+.upload-rejected ul {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-5);
+}
+
+.upload-rejected strong {
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+
+/* --- 上传结果区 --- */
+.upload-result {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.upload-result:empty {
+  display: none;
+}
+
+.upload-result-title {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.upload-result-block {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.upload-result-block h4 {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+}
+
+/* --- 我的文件库 --- */
+.file-library {
+  margin-top: var(--space-7);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-light);
+}
+
+.file-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.file-gallery-card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding: var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.file-gallery-card-thumb,
+.file-gallery-card-icon {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+}
+
+/* 文件库缩略图：contain 完整展示，不裁切 */
+.file-gallery-card-thumb {
+  object-fit: contain;
+}
+
+.file-gallery-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-2xl);
+}
+
+.file-gallery-card h4 {
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-gallery-card p {
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-gallery-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.file-gallery-card-actions .btn {
+  padding: 0.3rem 0.7rem;
+  font-size: var(--text-xs);
+}
+
+/* ===== 文件展示组件：九宫格 / 音频播放器 / 其他文件 ===== */
+
+/* --- 图片九宫格 --- */
+/* 缩略图统一 100×100px：轨道上限锁死 100px，
+   只有卡片窄到放不下 3×100px + 间距时才等比缩小（不会超过 100px，也不会溢出卡片） */
+.file-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 100px));
+  gap: var(--space-2);
+  justify-content: center;
+}
+
+.file-gallery-item {
+  position: relative;
+  display: block;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+  transition: border-color 0.15s ease;
+}
+
+.file-gallery-item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* 缩略图本身已用 Canvas contain 生成，这里保持一致而非 cover */
+  object-fit: contain;
+}
+
+.file-gallery-item:hover {
+  border-color: var(--primary);
+}
+
+/* 溢出格：第 9 张缩略图做高斯模糊（8px），右上角叠加 +X 徽标 */
+.file-gallery-item.is-overflow {
+  cursor: pointer;
+}
+
+.file-gallery-item.is-overflow img {
+  filter: blur(8px);
+  /* 放大一点，避免模糊后边缘出现透明缝隙 */
+  transform: scale(1.08);
+  pointer-events: none;
+}
+
+.file-overflow-badge {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  padding: 1px var(--space-2);
+  background: rgba(0, 0, 0, 0.62);
+  color: #ffffff;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  pointer-events: none;
+}
+
+/* --- 音频播放器：统一 280×60px（卡片更窄时按 max-width 自适应收缩） --- */
+.audio-list {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.audio-player {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* 尺寸统一 280×60px（窄屏下按 max-width 等比收缩宽度，高度不变） */
+  width: 280px;
+  max-width: 100%;
+  height: 60px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.audio-player audio {
+  display: none;
+}
+
+.audio-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.audio-toggle:hover {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+/* 标题独占一行，进度条与"当前时间 / 总时长"同行 */
+.audio-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'title title'
+    'progress time';
+  align-items: center;
+  gap: 2px var(--space-2);
+  min-width: 0;
+}
+
+.audio-title {
+  grid-area: title;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  /* 收紧行高，保证两行内容能放进 60px 高的播放器 */
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.audio-progress,
+.audio-volume {
+  height: 4px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.audio-progress {
+  grid-area: progress;
+  width: 100%;
+}
+
+.audio-progress.is-static {
+  display: block;
+  height: 4px;
+  background: var(--border);
+  border-radius: var(--radius-full);
+}
+
+.audio-volume {
+  flex: none;
+  width: 56px;
+}
+
+.audio-time {
+  grid-area: time;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* 音频溢出格：内部播放器外观半透明 + 模糊，+X 徽标清晰可点 */
+.audio-player.is-overflow {
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+.audio-player.is-overflow > *:not(.file-overflow-badge) {
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+.audio-player.is-overflow:hover {
+  opacity: 1;
+  border-color: var(--primary);
+}
+
+/* --- 其他文件列表 --- */
+.other-file-list {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.other-file-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.other-file-name {
+  flex: 1 1 160px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.other-file-size {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.other-file-item .btn {
+  flex: none;
+  padding: 0.3rem 0.7rem;
+  font-size: var(--text-xs);
+}
+
+/* 加密文件不提供直链，只提示需要密码 */
+.other-file-locked {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ===== 图片灯箱 ===== */
+.file-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-toast);
+  display: flex;
+  padding: var(--space-6);
+  /* 放大后可滚动查看局部 */
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.82);
+}
+
+.file-lightbox[hidden] {
+  display: none;
+}
+
+/* 灯箱打开时锁定页面滚动 */
+body.lightbox-open {
+  overflow: hidden;
+}
+
+/* margin: auto 让内容在视口内居中，放大超出时又能从左边缘开始完整滚动查看 */
+.file-lightbox-figure {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
+  width: min(92vw, 1100px);
+  margin: auto;
+}
+
+.file-lightbox-image {
+  display: block;
+  max-width: 100%;
+  max-height: 68vh;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  /* 原图完整展示，不裁切 */
+  object-fit: contain;
+  transition: width 0.15s ease;
+}
+
+.file-lightbox-caption {
+  max-width: 80vw;
+  font-size: var(--text-sm);
+  color: #ffffff;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* 上一张 / 下一张：贴左右边缘的圆形按钮 */
+.file-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  margin-top: -22px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-full);
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.file-lightbox-nav[hidden] {
+  display: none;
+}
+
+.file-lightbox-nav:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.file-lightbox-prev {
+  left: var(--space-4);
+}
+
+.file-lightbox-next {
+  right: var(--space-4);
+}
+
+/* 底部工具条：图片序号 / 缩放 / 下载原图 */
+.file-lightbox-toolbar {
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  max-width: calc(100% - var(--space-6));
+  padding: var(--space-2) var(--space-3);
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-full);
+}
+
+.file-lightbox-counter {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: #ffffff;
+}
+
+.file-lightbox-counter[hidden] {
+  display: none;
+}
+
+.file-lightbox-zoom-in,
+.file-lightbox-zoom-out,
+.file-lightbox-zoom-reset,
+.file-lightbox-download {
+  padding: var(--space-1) var(--space-3);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-full);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.file-lightbox-zoom-in:hover,
+.file-lightbox-zoom-out:hover,
+.file-lightbox-zoom-reset:hover,
+.file-lightbox-download:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.file-lightbox-download[hidden] {
+  display: none;
+}
+
+.file-lightbox-close {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-full);
+  font-size: var(--text-md);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.file-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ===== 首页热门文件（一次上传 = 一张卡片） ===== */
+
+/* 卡片间距统一 16px，列数随屏幕变化：桌面 4 列 / 平板 3 列 / 手机 2 列 */
+.file-batch-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+/* 4 列 × (3×100px 九宫格 + 间距 + 卡片内边距) 需要约 1440px 的内容宽度，
+   而站点主容器上限是 1280px。这里让热门文件这一行在宽屏上突破容器，
+   以便九宫格缩略图真正达到 100×100px；窄屏时自动收回容器内。 */
+.hot-files-section .file-batch-list {
+  --hot-files-row-width: min(1440px, calc(100vw - 2rem));
+  width: var(--hot-files-row-width);
+  margin-inline: calc((100% - var(--hot-files-row-width)) / 2);
+}
+
+.file-batch-card {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  animation: fade-up 0.35s ease backwards;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* 悬停上浮 5px + 阴影加深（键盘聚焦时同样反馈） */
+.file-batch-card:hover,
+.file-batch-card:focus-within {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-lg);
+}
+
+.file-batch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+/* 热度标签：悬停显示热度构成，作为排序规则的具体呈现 */
+.file-batch-heat {
+  flex: none;
+  padding: 2px var(--space-2);
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+
+.file-batch-meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 平板端（768px - 1199px）：每行 3 个 */
+@media (max-width: 1199px) {
+  .file-batch-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* 移动端（< 768px）：每行 2 个，卡片尺寸自适应 */
+@media (max-width: 767px) {
+  .file-batch-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    /* 间距在三个断点下统一为 16px（--space-4） */
+    gap: var(--space-4);
+  }
+
+  .file-batch-card {
+    padding: var(--space-3);
+  }
+
+  .file-batch-heat {
+    display: none;
+  }
+
+  /* 卡片变窄后音量条放不下，播放/进度/时长仍保留 */
+  .audio-volume {
+    display: none;
+  }
+}
+
+/* 骨架屏卡片：与真实卡片同尺寸，避免加载完成后的布局跳动 */
+.file-batch-skeleton {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.file-batch-skeleton-grid {
+  height: 96px;
+}
+
+/* 排序规则悬浮提示 */
+.hot-files-hint {
+  flex: none;
+  padding: 2px var(--space-2);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: help;
+}
+
+.hot-files-hint:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 滚动到底自动加载更多：哨兵按钮同时兼容不支持 IntersectionObserver 的场景 */
+.load-more-sentinel {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.load-more-sentinel[hidden] {
+  display: none;
+}
+
+.load-more-sentinel:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.load-more-retry {
+  display: block;
+  margin: var(--space-4) auto 0;
+}
+
+.load-more-retry[hidden] {
+  display: none;
+}
+
+.file-batch-title {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.file-batch-more {
+  justify-self: start;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.file-batch-more:hover {
+  color: var(--primary-dark);
+  text-decoration: underline;
+}
+
+.file-others-card {
+  display: block;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.file-others-card:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ===== 文件批次详情页 ===== */
+.file-detail-content {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.file-detail-card {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.file-detail-card h1 {
+  font-size: var(--text-xl);
+  font-weight: var(--fw-bold);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.file-detail-section {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.file-detail-section h2 {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-secondary);
+}
+
+/* 详情页九宫格：宽屏更多列，手机回到 3 列 */
+@media (min-width: 1000px) {
+  .file-detail-section .file-gallery {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+/* --- 移动端收紧 --- */
+@media (max-width: 640px) {
+  .file-gallery-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-3);
+  }
+
+  .file-lightbox {
+    padding: var(--space-3);
+  }
+
+  .file-lightbox-figure {
+    width: 100%;
+  }
+
+  .file-lightbox-close {
+    top: var(--space-2);
+    right: var(--space-2);
+  }
+
+  .file-lightbox-nav {
+    width: 36px;
+    height: 36px;
+    margin-top: -18px;
+  }
+
+  .file-lightbox-prev {
+    left: var(--space-1);
+  }
+
+  .file-lightbox-next {
+    right: var(--space-1);
+  }
+
+  .file-lightbox-toolbar {
+    bottom: var(--space-2);
+  }
+
+  .upload-queue-item,
+  .other-file-item {
+    font-size: var(--text-xs);
+  }
+
+  .upload-queue-thumb,
+  .upload-queue-icon {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* --- 减动效：模糊与过渡保留信息，仅去掉动效 --- */
+@media (prefers-reduced-motion: reduce) {
+  .upload-progress-bar,
+  .file-batch-card,
+  .file-lightbox-image,
+  .load-more-sentinel {
+    transition: none;
+    animation: none;
+  }
+
+  /* 悬停上浮也一并去掉 */
+  .file-batch-card:hover,
+  .file-batch-card:focus-within {
+    transform: none;
+  }
+}
+
+/* 深色态：警告底与灯箱背景按主题微调 */
+body.dark .upload-rejected {
+  background: rgba(243, 156, 18, 0.16);
+}
+
+body.dark .file-lightbox {
+  background: rgba(0, 0, 0, 0.9);
+}
+
+/* ===== 文件详情页：文件选择条 + 可勾选文件行 + ZIP 打包进度 ===== */
+
+.file-detail-select-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.file-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.file-select-all input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.file-select-all:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.file-select-count,
+.file-select-size {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.file-detail-package-btn {
+  margin-left: auto;
+}
+
+.file-detail-package-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 可勾选文件列表 */
+.file-select-list {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.file-select-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.file-select-item:hover {
+  background: var(--bg);
+}
+
+.file-select-item.is-checked {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+/* ===== 图片预览选择整合：点击图片切换选中（右下角复选框显隐） ===== */
+.image-select-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.image-select-toolbar h2 {
+  margin: 0;
+}
+
+.image-select-toolbar .image-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.image-select-toolbar .image-select-all input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.image-select-toolbar .image-download-btn {
+  margin-left: auto;
+}
+
+.image-select-gallery .file-gallery-item {
+  cursor: pointer;
+}
+
+.image-select-gallery .file-gallery-item.is-selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.file-tile-check {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  color: transparent;
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 0.18s ease, transform 0.18s ease, background-color 0.18s ease;
+  pointer-events: none;
+}
+
+.image-select-gallery .file-gallery-item.is-selected .file-tile-check {
+  opacity: 1;
+  transform: scale(1);
+  background: var(--primary);
+  border-color: #fff;
+  color: #fff;
+}
+
+body.dark .file-select-item.is-checked {
+  background: rgba(251, 114, 153, 0.12);
+}
+
+.file-select-item input.file-select-check {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.file-select-item input.file-select-check:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.file-select-item-media {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: var(--text-muted);
+}
+
+.file-select-item-thumb {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.file-select-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+}
+
+.file-select-item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.file-select-locked {
+  font-size: var(--text-xs);
+}
+
+.file-select-item-state {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  min-width: 3.5em;
+  text-align: right;
+}
+
+.file-select-item.is-checked .file-select-item-state {
+  color: var(--primary-dark);
+  font-weight: var(--fw-semibold);
+}
+
+body.dark .file-select-item.is-checked .file-select-item-state {
+  color: var(--primary);
+}
+
+/* ZIP 打包进度条 */
+.zip-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.zip-progress[hidden] {
+  display: none;
+}
+
+.zip-progress .upload-progress-text {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .file-detail-select-bar {
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .file-select-item {
+    grid-template-columns: auto auto 1fr;
+    grid-auto-flow: row;
+    row-gap: var(--space-2);
+  }
+
+  .file-select-item-meta {
+    grid-column: 2 / -1;
+  }
+
+  .file-select-item-state {
+    grid-column: 2 / -1;
+    text-align: left;
+    min-width: 0;
+  }
+
+  .file-detail-package-btn {
+    margin-left: 0;
+  }
+
+  .image-select-toolbar .image-download-btn {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .file-tile-check {
+    right: 6px;
+    bottom: 6px;
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-select-item {
+    transition: none;
+  }
+
+  .file-tile-check {
+    transition: none;
+  }
+}
+
+/* ===== 仪表盘文件库：上传批次卡片 + 预下载云盘 + 存储用量条 ===== */
+
+/* 通用：幽灵小按钮（批次卡片内文件操作） */
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+
+.btn-ghost:hover {
+  color: var(--primary);
+  background: var(--bg);
+  border-color: var(--border-light);
+}
+
+.btn-small {
+  padding: 0.25rem 0.6rem;
+  font-size: var(--text-xs);
+}
+
+/* 两分区容器 */
+#my-file-library .file-library-block {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5) 0;
+}
+
+#my-file-library .file-library-block + .file-library-block {
+  border-top: 1px solid var(--border-light);
+}
+
+#my-file-library .file-library-block .section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+#my-file-library .file-library-block .section-header h3 {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+}
+
+.file-library-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* --- a) 上传文件库：批次卡片网格 --- */
+.upload-batch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.upload-batch-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.upload-batch-card:hover {
+  border-color: var(--border);
+  box-shadow: var(--shadow-hover);
+}
+
+.upload-batch-head {
+  display: grid;
+  gap: 2px;
+}
+
+.upload-batch-title {
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.upload-batch-meta,
+.upload-batch-time {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.upload-batch-files {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.batch-file-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+}
+
+.batch-file-media {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: var(--text-muted);
+}
+
+.batch-file-media img {
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.batch-file-name {
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.batch-file-size,
+.batch-file-time {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-file-time {
+  min-width: 6.5em;
+  text-align: right;
+}
+
+.batch-file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.batch-file-lock {
+  font-size: var(--text-xs);
+}
+
+/* --- b) 预下载文件库：云盘 --- */
+.file-library-cloud .section-header .pre-file-drop {
+  display: inline-flex;
+}
+
+.pre-file-drop input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+
+.storage-usage {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+}
+
+.storage-usage-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.storage-usage-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.storage-usage-count {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.storage-usage-track {
+  height: 10px;
+  overflow: hidden;
+  background: var(--border-light);
+  border-radius: var(--radius-full);
+}
+
+.storage-usage-bar {
+  width: 0;
+  height: 100%;
+  background: var(--primary-gradient);
+  border-radius: var(--radius-full);
+  transition: width 0.25s ease;
+}
+
+.storage-usage-bar.is-warning {
+  background: linear-gradient(135deg, var(--warning), #ffb85e);
+}
+
+.storage-usage-bar.is-full {
+  background: linear-gradient(135deg, var(--danger), #ff8f84);
+}
+
+.pre-file-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+.pre-file-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.pre-file-select-all input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+}
+
+.pre-file-selected {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pre-file-toolbar-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.pre-file-toolbar-actions .btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pre-file-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pre-file-item {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.pre-file-item:hover {
+  background: var(--bg);
+}
+
+.pre-file-item.is-checked {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+body.dark .pre-file-item.is-checked {
+  background: rgba(251, 114, 153, 0.12);
+}
+
+.pre-file-item input.pre-file-check {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.pre-file-media {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--text-muted);
+}
+
+.pre-file-name {
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pre-file-size,
+.pre-file-time {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pre-file-time {
+  min-width: 6.5em;
+  text-align: right;
+}
+
+.pre-file-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+.pre-file-empty {
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: center;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+/* --- 移动端收紧 --- */
+@media (max-width: 640px) {
+  .upload-batch-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-file-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-auto-flow: row;
+  }
+
+  .batch-file-size,
+  .batch-file-time {
+    grid-column: 1 / -1;
+  }
+
+  .pre-file-item {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-auto-flow: row;
+    row-gap: var(--space-2);
+  }
+
+  .pre-file-size,
+  .pre-file-time {
+    grid-column: 2 / -1;
+  }
+
+  .pre-file-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-end;
+  }
+
+  .pre-file-toolbar-actions {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .storage-usage-bar,
+  .pre-file-item,
+  .upload-batch-card {
+    transition: none;
   }
 }

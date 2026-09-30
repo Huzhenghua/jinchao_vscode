@@ -40,5 +40,7 @@ module.exports = {
     user: process.env.JINCHAO_EMAIL_USER || localEnv.JINCHAO_EMAIL_USER || '',
     pass: process.env.JINCHAO_EMAIL_PASS || localEnv.JINCHAO_EMAIL_PASS || ''
   },
-  adminEmail: process.env.JINCHAO_ADMIN_EMAIL || localEnv.JINCHAO_ADMIN_EMAIL || ''
+  adminEmail: process.env.JINCHAO_ADMIN_EMAIL || localEnv.JINCHAO_ADMIN_EMAIL || '',
+  // 站点对外访问地址（用于在邮件里拼验证链接；本地开发可留空，自动取请求 Host）
+  baseUrl: process.env.JINCHAO_BASE_URL || localEnv.JINCHAO_BASE_URL || ''
 };

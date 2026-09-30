@@ -66,26 +66,53 @@
       </div>
     </section>
 
-    <!-- ========== 文件区域 (可折叠) ========== -->
-    <section class="collapse-section">
-      <div class="collapse-header" onclick="toggleCollapse(this)">
-        <div class="section-header"><h2>热门文件</h2><a class="more-link" href="/browse.html?type=file" target="_blank" rel="noopener">更多 →</a></div>
-        <span class="arrow" aria-hidden="true">▼</span>
+    <!-- ========== 热门文件展示区：一次上传 = 一张卡片 ========== -->
+    <section class="hot-files-section" aria-labelledby="hot-files-title">
+      <div class="section-header">
+        <h2 id="hot-files-title">热门文件</h2>
+        <span class="hot-files-hint" id="hot-files-hint" tabindex="0"
+          title="热度 = 下载量×3 + 收藏数×5 + 浏览量×1；热度相同时，最新上传的文件排在最前"
+          aria-label="排序规则：文件按热度降序排列，热度等于下载量乘三加收藏数乘五加浏览量乘一；热度相同时，最新上传的文件排在最前">排序规则 ⓘ</span>
+        <a class="more-link" href="/browse.html?type=file">更多 →</a>
       </div>
-      <div class="collapse-body">
-        <div id="files-list" class="files-list">
-          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
-          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
-          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
-          <div class="skeleton-row"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-line"></div></div>
-        </div>
+
+      <!-- 卡片网格：首屏先铺骨架屏，命中会话缓存时直接秒开 -->
+      <div id="file-batch-list" class="file-batch-list" aria-busy="true" aria-describedby="hot-files-hint">
+        <div class="skeleton-card file-batch-skeleton" aria-hidden="true"><div class="skeleton skeleton-title"></div><div class="skeleton file-batch-skeleton-grid"></div><div class="skeleton skeleton-line"></div></div>
+        <div class="skeleton-card file-batch-skeleton" aria-hidden="true"><div class="skeleton skeleton-title"></div><div class="skeleton file-batch-skeleton-grid"></div><div class="skeleton skeleton-line"></div></div>
+        <div class="skeleton-card file-batch-skeleton" aria-hidden="true"><div class="skeleton skeleton-title"></div><div class="skeleton file-batch-skeleton-grid"></div><div class="skeleton skeleton-line"></div></div>
+        <div class="skeleton-card file-batch-skeleton" aria-hidden="true"><div class="skeleton skeleton-title"></div><div class="skeleton file-batch-skeleton-grid"></div><div class="skeleton skeleton-line"></div></div>
       </div>
+
+      <!-- 滚动到此按钮即自动加载下一页；不支持 IntersectionObserver 时可手动点击 -->
+      <button id="file-batch-sentinel" class="load-more-sentinel" type="button" hidden>加载更多</button>
+      <button id="file-batch-retry" class="btn btn-secondary load-more-retry" type="button" hidden>加载失败，点击重试</button>
+      <p id="file-batch-status" class="dash-visually-hidden" role="status" aria-live="polite"></p>
     </section>
 
   </main>
 
+  <!-- 图片灯箱：点缩略图看原图，支持切换 / 缩放 / 下载 -->
+  <div class="file-lightbox" id="file-lightbox" role="dialog" aria-modal="true" aria-label="图片预览" hidden>
+    <button class="file-lightbox-close" type="button" aria-label="关闭预览">✕</button>
+    <button class="file-lightbox-nav file-lightbox-prev" type="button" aria-label="上一张图片">‹</button>
+    <button class="file-lightbox-nav file-lightbox-next" type="button" aria-label="下一张图片">›</button>
+    <figure class="file-lightbox-figure">
+      <img class="file-lightbox-image" src="" alt="">
+      <figcaption class="file-lightbox-caption"></figcaption>
+    </figure>
+    <div class="file-lightbox-toolbar">
+      <span class="file-lightbox-counter" hidden></span>
+      <button class="file-lightbox-zoom-out" type="button" aria-label="缩小">−</button>
+      <button class="file-lightbox-zoom-reset" type="button" aria-label="还原为原始大小">1:1</button>
+      <button class="file-lightbox-zoom-in" type="button" aria-label="放大">＋</button>
+      <a class="file-lightbox-download" href="" download hidden>下载原图</a>
+    </div>
+  </div>
+
   <!-- ========== 底部脚本区 ========== -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  <script src="/js/file-card-logic.js"></script>
   <script src="/js/app.js"></script>
   <script>
     updateNavigation();
@@ -97,7 +124,9 @@
     // 首页视频推荐流(全局渲染到 #videos-list)
     loadRecommendVideos();
 
-    loadFiles('files-list', homeLimit, 'hot');
+    // 热门文件：一次上传聚合成一张卡片（图片九宫格 / 音频播放器 / 其他文件），按热度降序
+    setupFileBatches();
+    renderFileBatches();
     setupGlobalSearch();
   </script>
 </body>

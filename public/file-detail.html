@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文件详情 - 烬潮</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="navbar">
+    <a class="nav-brand" href="/"><svg class="brand-logo" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3 1.072-2.143 2.5-3.736 4.5-5 .5 2.5 1.5 3.5 2.5 5a7.5 7.5 0 1 1-11 0c.383-.476 1-1.5 1-2.5"/></svg>烬潮</a>
+    <div class="nav-center">
+      <form class="nav-search" id="nav-search-form">
+        <input class="nav-search-input" id="nav-search-input" type="search" placeholder="搜索视频 / 文章 / 文件" />
+        <button class="nav-search-btn" type="submit">搜索</button>
+      </form>
+    </div>
+    <div class="nav-actions" id="nav-actions"></div>
+  </header>
+
+  <main class="container">
+    <a class="back-link" href="/">返回首页</a>
+    <div id="file-detail-content" class="file-detail-content">
+      <p class="loading">正在加载文件详情...</p>
+    </div>
+  </main>
+
+  <!-- 图片灯箱：点缩略图看原图，支持切换 / 缩放 / 下载 -->
+  <div class="file-lightbox" id="file-lightbox" role="dialog" aria-modal="true" aria-label="图片预览" hidden>
+    <button class="file-lightbox-close" type="button" aria-label="关闭预览">✕</button>
+    <button class="file-lightbox-nav file-lightbox-prev" type="button" aria-label="上一张图片">‹</button>
+    <button class="file-lightbox-nav file-lightbox-next" type="button" aria-label="下一张图片">›</button>
+    <figure class="file-lightbox-figure">
+      <img class="file-lightbox-image" src="" alt="">
+      <figcaption class="file-lightbox-caption"></figcaption>
+    </figure>
+    <div class="file-lightbox-toolbar">
+      <span class="file-lightbox-counter" hidden></span>
+      <button class="file-lightbox-zoom-out" type="button" aria-label="缩小">−</button>
+      <button class="file-lightbox-zoom-reset" type="button" aria-label="还原为原始大小">1:1</button>
+      <button class="file-lightbox-zoom-in" type="button" aria-label="放大">＋</button>
+      <a class="file-lightbox-download" href="" download hidden>下载原图</a>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  <script src="/js/file-card-logic.js"></script>
+  <script src="/js/app.js"></script>
+  <script>
+    updateNavigation();
+    setupGlobalSearch();
+    initFileDetailPage();
+  </script>
+</body>
+</html>

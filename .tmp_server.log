@@ -1,0 +1,5 @@
+烬潮博客运行在 http://localhost:3000
+局域网访问地址：http://<本机局域网IP>:3000
+[访问] 2026/9/30 18:09:09 IP=127.0.0.1 GET /api/file-batches
+[访问] 2026/9/30 18:09:09 IP=127.0.0.1 GET /api/password-reset/verify
+[访问] 2026/9/30 18:09:09 IP=127.0.0.1 GET /forgot-password.html

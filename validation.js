@@ -1,3 +1,42 @@
+const path = require('path');
+
+// ===== 文件上传格式白名单 =====
+
+// 明确禁止的可执行/脚本类扩展名
+const DANGEROUS_FILE_EXTENSIONS = [
+  '.exe', '.bat', '.cmd', '.sh', '.ps1', '.msi', '.dll',
+  '.scr', '.com', '.vbs', '.jar', '.app', '.apk',
+];
+
+// 允许上传的扩展名（按类别组织，前端也会镜像同一份白名单）
+const ALLOWED_FILE_TYPES = {
+  image: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'],
+  audio: ['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac'],
+  video: ['.mp4', '.webm', '.mov', '.mkv'],
+  document: ['.pdf', '.txt', '.md', '.csv', '.json', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.zip', '.rar', '.7z'],
+};
+
+const ALLOWED_FILE_EXTENSIONS = Object.values(ALLOWED_FILE_TYPES).flat();
+
+// 校验单个文件：通过返回 null，不通过返回中文原因
+function validateUploadFile(originalName) {
+  const extension = path.extname(String(originalName || '')).toLowerCase();
+
+  if (!extension) {
+    return '文件名缺少扩展名，无法识别格式';
+  }
+
+  if (DANGEROUS_FILE_EXTENSIONS.includes(extension)) {
+    return `出于安全考虑，不支持上传 ${extension} 类型的可执行文件`;
+  }
+
+  if (!ALLOWED_FILE_EXTENSIONS.includes(extension)) {
+    return `不支持的文件格式（${extension}），仅支持图片、音频、视频、文档与压缩包`;
+  }
+
+  return null;
+}
+
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
@@ -193,4 +232,8 @@ module.exports = {
   BARRAGE_MAX_OFFSET_MS,
   validateBarrageCreate,
   validateBarrageUpdate,
+  DANGEROUS_FILE_EXTENSIONS,
+  ALLOWED_FILE_TYPES,
+  ALLOWED_FILE_EXTENSIONS,
+  validateUploadFile,
 };

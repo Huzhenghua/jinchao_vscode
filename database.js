@@ -79,6 +79,20 @@ if (!fileColumns.includes('file_size')) {
 if (!fileColumns.includes('download_count')) {
   db.exec('ALTER TABLE files ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0');
 }
+if (!fileColumns.includes('thumbnail')) {
+  db.exec('ALTER TABLE files ADD COLUMN thumbnail TEXT');
+}
+// 浏览量：用于首页热门文件的热度计算（下载量×3 + 收藏数×5 + 浏览量×1）
+if (!fileColumns.includes('view_count')) {
+  db.exec('ALTER TABLE files ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0');
+}
+// 批次字段：一次上传共用一个 batch_id，batch_index 记录文件在批次中的序号（历史数据不回填，聚合时视为独立批次）
+if (!fileColumns.includes('batch_id')) {
+  db.exec('ALTER TABLE files ADD COLUMN batch_id TEXT');
+}
+if (!fileColumns.includes('batch_index')) {
+  db.exec('ALTER TABLE files ADD COLUMN batch_index INTEGER');
+}
 
 // 创建视频及互动表
 db.exec(`
@@ -338,5 +352,33 @@ if (!barrageColumns.includes('speed')) {
 if (!barrageColumns.includes('updated_at')) {
   db.exec('ALTER TABLE barrages ADD COLUMN updated_at DATETIME');
 }
+
+// 密码修改（链接令牌）表：仅存令牌哈希，单次使用，30 分钟过期
+db.exec(`
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`);
+
+// 预下载文件库（云盘式空间）：与上传文件库相互独立，每个用户共享 200MB 容量上限
+// 仅保存"预下载"的文件元信息，文件本体放在独立目录 pre_files/ 下
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pre_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_size INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`);
 
 module.exports = db;

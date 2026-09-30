@@ -1,6 +1,9 @@
 // API基础URL
 const API_BASE = '';
 
+// 文件卡片纯逻辑（热度计算 / 批次排序 / 九宫格与音频切分），与后端 server.js 共用同一条实现
+const FileCardLogic = window.FileCardLogic;
+
 // 内联 SVG 图标集（24x24 线条风格，stroke 跟随 currentColor）
 const UI_ICONS = {
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
@@ -10,6 +13,7 @@ const UI_ICONS = {
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   menu: '<line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/>',
   play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
   heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
   star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
   upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
@@ -370,6 +374,123 @@ async function handleResetPassword(e) {
     }
   } catch (error) {
     showMessage('reset-message', '重置失败，请重试', true);
+  }
+}
+
+// ===== 密码修改（邮箱验证链接）=====
+
+// 申请发送密码修改链接：
+//   入口 A（已登录，dashboard「修改密码」）不传 email，后端从会话识别用户；
+//   入口 B（未登录，forgot-password 页）传 email。
+async function requestPasswordReset({ email, messageId, buttonId } = {}) {
+  const button = buttonId ? document.getElementById(buttonId) : null;
+  if (button) button.disabled = true;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/password-reset/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(email ? { email } : {}),
+    });
+    const data = await response.json();
+    showMessage(messageId, data.message, !data.success);
+
+    if (data.success && button) {
+      startCodeCountdown(button); // 复用 60 秒冷却，结束后自动恢复按钮
+    } else if (button) {
+      button.disabled = false;
+    }
+  } catch (error) {
+    showMessage(messageId, '发送失败，请重试', true);
+    if (button) button.disabled = false;
+  }
+}
+
+// 入口 B：忘记密码页表单提交
+function handleForgotPassword(event) {
+  event.preventDefault();
+  const email = document.getElementById('email').value.trim().toLowerCase();
+  return requestPasswordReset({ email, messageId: 'forgot-message' });
+}
+
+// 重置页状态机：校验中 → 失败（保持表单隐藏 + 常驻提示）→ 成功（显示表单 + 脱敏邮箱）
+async function initResetPasswordPage() {
+  const form = document.getElementById('reset-form');
+  const account = document.getElementById('reset-account');
+  if (!form || !account) return;
+
+  const token = new URLSearchParams(window.location.search).get('token') || '';
+  if (!token) {
+    account.hidden = false;
+    account.textContent = '链接缺少验证令牌，请重新申请密码修改链接。';
+    showMessage('reset-message', '链接缺少验证令牌，请重新申请', true);
+    return;
+  }
+  form.dataset.token = token;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/password-reset/verify?token=${encodeURIComponent(token)}`);
+    const data = await response.json();
+
+    if (!data.success) {
+      // 失败时表单保持隐藏，避免提交到无效令牌
+      account.hidden = false;
+      account.textContent = data.message || '链接无效或已过期，请重新申请。';
+      showMessage('reset-message', data.message, true);
+      return;
+    }
+
+    form.hidden = false;
+    account.hidden = false;
+    account.textContent = `正在为 ${data.email} 设置新密码`;
+    showMessage('reset-message', '链接有效，请设置新密码');
+  } catch (error) {
+    account.hidden = false;
+    account.textContent = '链接校验失败，请稍后重试。';
+    showMessage('reset-message', '链接校验失败，请重试', true);
+  }
+}
+
+// 提交新密码：两次输入一致由前端先校验，不一致不发请求
+async function handleConfirmResetPassword(event) {
+  event.preventDefault();
+  const form = event.target;
+  const token = form.dataset.token || '';
+  const password = document.getElementById('password').value;
+  const confirmPassword = document.getElementById('confirm-password').value;
+
+  if (password.length < 8) {
+    showMessage('reset-message', '密码至少为8位字符', true);
+    return;
+  }
+  if (password !== confirmPassword) {
+    showMessage('reset-message', '两次密码不一致', true);
+    return;
+  }
+
+  const button = form.querySelector('button[type="submit"]');
+  if (button) button.disabled = true;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/password-reset/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password }),
+    });
+    const data = await response.json();
+    showMessage('reset-message', data.message, !data.success);
+
+    if (data.success) {
+      form.hidden = true;
+      setTimeout(() => {
+        window.location.href = '/login.html';
+      }, 2000);
+    } else if (button) {
+      button.disabled = false;
+    }
+  } catch (error) {
+    showMessage('reset-message', '修改失败，请重试', true);
+    if (button) button.disabled = false;
   }
 }
 
@@ -982,6 +1103,8 @@ async function deleteFile(fileId) {
     return;
   }
   await loadFiles();
+  await refreshMyFileLibrary();
+  await renderFileBatches();
 }
 
 function setupGlobalSearch() {
@@ -2645,30 +2768,1514 @@ function setupMentionInputs() {
   });
 }
 
+// ===== 多文件上传 =====
+
+// 前端镜像后端的扩展名白名单/黑名单（与 validation.js 保持一致，最终以后端校验为准）
+const DANGEROUS_UPLOAD_EXTENSIONS = ['.exe', '.bat', '.cmd', '.sh', '.ps1', '.msi', '.dll', '.scr', '.com', '.vbs', '.jar', '.app', '.apk'];
+const ALLOWED_UPLOAD_EXTENSIONS = [
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
+  '.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac',
+  '.mp4', '.webm', '.mov', '.mkv',
+  '.pdf', '.txt', '.md', '.csv', '.json', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.zip', '.rar', '.7z',
+];
+const MAX_UPLOAD_FILES = 20;
+const THUMBNAIL_SIZE = 200;
+const UPLOAD_STATUS_TEXT = { ready: '待上传', uploading: '上传中', done: '已完成', error: '失败' };
+
+// 当前选择批次的状态：文件本体 + 缩略图 blob + 单项状态
+const fileUploadState = { items: [] };
+
+function fileExtensionOf(name) {
+  const index = String(name || '').lastIndexOf('.');
+  return index > -1 ? String(name).slice(index).toLowerCase() : '';
+}
+
+function isImageFile(file) {
+  return String((file && file.type) || '').startsWith('image/');
+}
+
+function isAudioMimeType(mimeType) {
+  return String(mimeType || '').startsWith('audio/');
+}
+
+function isImageMimeType(mimeType) {
+  return String(mimeType || '').startsWith('image/');
+}
+
+function formatFileSize(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// 前端预校验：null 通过，否则返回中文原因
+function validateClientFile(file) {
+  const extension = fileExtensionOf(file.name);
+  if (!extension) return '文件名缺少扩展名，无法识别格式';
+  if (DANGEROUS_UPLOAD_EXTENSIONS.includes(extension)) return `${extension} 属于可执行文件，禁止上传`;
+  if (!ALLOWED_UPLOAD_EXTENSIONS.includes(extension)) return `不支持的文件格式（${extension}）`;
+  return null;
+}
+
+// 用 Canvas 生成 200×200 缩略图：contain 保持比例（不得用 cover），JPEG 0.85
+function generateThumbnail(file) {
+  return new Promise(resolve => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = THUMBNAIL_SIZE;
+      canvas.height = THUMBNAIL_SIZE;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, THUMBNAIL_SIZE, THUMBNAIL_SIZE);
+      const scale = Math.min(THUMBNAIL_SIZE / image.width, THUMBNAIL_SIZE / image.height);
+      const drawWidth = image.width * scale;
+      const drawHeight = image.height * scale;
+      context.drawImage(image, (THUMBNAIL_SIZE - drawWidth) / 2, (THUMBNAIL_SIZE - drawHeight) / 2, drawWidth, drawHeight);
+      URL.revokeObjectURL(objectUrl);
+      canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.85);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(null);
+    };
+    image.src = objectUrl;
+  });
+}
+
+// 选择文件后：生成缩略图、渲染队列与格式错误清单
+async function handleFileSelectionChange(event) {
+  const files = Array.from((event.target.files) || []);
+  fileUploadState.items = [];
+
+  const accepted = files.slice(0, MAX_UPLOAD_FILES);
+  const rejected = [];
+
+  accepted.forEach(file => {
+    const reason = validateClientFile(file);
+    if (reason) rejected.push({ name: file.name, reason });
+    else fileUploadState.items.push({ file, thumbnail: null, previewUrl: null, status: 'ready' });
+  });
+  if (files.length > MAX_UPLOAD_FILES) {
+    rejected.push({
+      name: `其余 ${files.length - MAX_UPLOAD_FILES} 个文件`,
+      reason: `一次最多上传 ${MAX_UPLOAD_FILES} 个文件`,
+    });
+  }
+
+  // 图片生成缩略图，队列里直接给出预览
+  await Promise.all(fileUploadState.items.map(async item => {
+    if (!isImageFile(item.file)) return;
+    const blob = await generateThumbnail(item.file);
+    if (blob) {
+      item.thumbnail = blob;
+      item.previewUrl = URL.createObjectURL(blob);
+    }
+  }));
+
+  renderUploadQueue();
+  renderRejectedList(rejected);
+}
+
+function renderUploadQueue() {
+  const queue = document.getElementById('upload-queue');
+  if (!queue) return;
+  queue.innerHTML = fileUploadState.items.map(item => `
+    <li class="upload-queue-item is-${item.status}">
+      ${item.previewUrl
+        ? `<img class="upload-queue-thumb" src="${escapeAttribute(item.previewUrl)}" alt="">`
+        : `<span class="upload-queue-icon" aria-hidden="true">${isImageFile(item.file) ? '🖼' : '📄'}</span>`}
+      <span class="upload-queue-name">${escapeHtml(item.file.name)}</span>
+      <span class="upload-queue-size">${formatFileSize(item.file.size)}</span>
+      <span class="upload-queue-status">${escapeHtml(UPLOAD_STATUS_TEXT[item.status] || '')}</span>
+    </li>`).join('');
+}
+
+function renderRejectedList(rejected) {
+  const container = document.getElementById('upload-rejected');
+  if (!container) return;
+  if (!rejected.length) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = `
+    <p class="upload-rejected-title">以下 ${rejected.length} 个文件被跳过：</p>
+    <ul>${rejected.map(item => `<li><strong>${escapeHtml(item.name)}</strong>：${escapeHtml(item.reason)}</li>`).join('')}</ul>`;
+}
+
+function updateUploadProgress(percent) {
+  const wrapper = document.getElementById('upload-progress');
+  const bar = document.getElementById('upload-progress-bar');
+  const text = document.getElementById('upload-progress-text');
+  if (!wrapper) return;
+  wrapper.hidden = false;
+  if (bar) bar.style.width = `${percent}%`;
+  if (text) text.textContent = `${percent}%`;
+}
+
+// 一个 XHR 传整批（fetch 不支持上传进度）；
+// thumbnailIndexes 告诉后端"第几个文件带缩略图"，形如 "0,3,5"，须与 append 顺序一致
+function uploadFileBatch({ title, password }) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('password', password);
+
+    const thumbnailIndexes = [];
+    fileUploadState.items.forEach((item, index) => {
+      formData.append('files', item.file, item.file.name);
+      if (item.thumbnail) {
+        thumbnailIndexes.push(index);
+        formData.append('thumbnails', item.thumbnail, `thumb-${index}.jpg`);
+      }
+    });
+    formData.append('thumbnailIndexes', thumbnailIndexes.join(','));
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/api/files`);
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = event => {
+      if (!event.lengthComputable) return;
+      updateUploadProgress(Math.round((event.loaded / event.total) * 100));
+    };
+    xhr.onload = () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (error) { data = null; }
+      if (!data) reject(new Error('服务器返回异常'));
+      else resolve(data);
+    };
+    xhr.onerror = () => reject(new Error('网络错误'));
+    xhr.send(formData);
+  });
+}
+
 async function handleFileUpload(event) {
   event.preventDefault();
   const form = event.target;
+  const title = document.getElementById('file-title').value.trim();
+  const password = document.getElementById('file-password').value.trim();
   const submitButton = form.querySelector('button[type="submit"]');
+
+  if (!fileUploadState.items.length) {
+    showMessage('file-message', '请选择要上传的文件', true);
+    return;
+  }
+
+  fileUploadState.items.forEach(item => { item.status = 'uploading'; });
+  renderUploadQueue();
+  updateUploadProgress(0);
   submitButton.disabled = true;
   submitButton.textContent = '上传中...';
 
   try {
-    const response = await fetch(`${API_BASE}/api/files`, {
-      method: 'POST',
-      body: new FormData(form),
-    });
-    const data = await response.json();
+    const data = await uploadFileBatch({ title, password });
+    fileUploadState.items.forEach(item => { item.status = data.success ? 'done' : 'error'; });
+    renderUploadQueue();
     showMessage('file-message', data.message, !data.success);
+    renderUploadResult(data);
+
     if (data.success) {
+      fileUploadState.items.forEach(item => { if (item.previewUrl) URL.revokeObjectURL(item.previewUrl); });
+      fileUploadState.items = [];
       form.reset();
-      await loadFiles();
+      renderUploadQueue();
+      renderRejectedList([]);
+      await refreshMyFileLibrary();
+      await renderFileBatches();
     }
   } catch (error) {
+    fileUploadState.items.forEach(item => { item.status = 'error'; });
+    renderUploadQueue();
     showMessage('file-message', '上传失败，请重试', true);
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = '上传文件';
+    setTimeout(() => {
+      const wrapper = document.getElementById('upload-progress');
+      if (wrapper) wrapper.hidden = true;
+    }, 800);
   }
+}
+
+// 上传结果区：九宫格缩略图 + 音频播放器 + 其他文件列表
+function renderUploadResult(data) {
+  const container = document.getElementById('upload-result');
+  if (!container) return;
+
+  const files = (data && data.files) || [];
+  if (!files.length) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const images = files.filter(item => isImageMimeType(item.mime_type));
+  const audios = files.filter(item => isAudioMimeType(item.mime_type));
+  const others = files.filter(item => !isImageMimeType(item.mime_type) && !isAudioMimeType(item.mime_type));
+
+  container.innerHTML = `
+    <h3 class="upload-result-title">本次上传结果</h3>
+    ${images.length ? `<div class="upload-result-block"><h4>图片 ${images.length} 张</h4>${fileGalleryMarkup(images)}</div>` : ''}
+    ${audios.length ? `<div class="upload-result-block"><h4>音频 ${audios.length} 个</h4><div class="audio-list">${audios.map(audioPlayerMarkup).join('')}</div></div>` : ''}
+    ${others.length ? `<div class="upload-result-block"><h4>其他文件 ${others.length} 个</h4><ul class="other-file-list">${others.map(otherFileMarkup).join('')}</ul></div>` : ''}
+  `;
+  setupAudioPlayers(container);
+}
+
+// ===== 文件展示组件（九宫格 / 音频播放器 / 灯箱）=====
+
+function imageTileMarkup(item, selectable = false) {
+  const title = item.title || item.original_name || '图片';
+  const check = selectable ? `<span class="file-tile-check" aria-hidden="true">✓</span>` : '';
+  return `<button class="file-gallery-item" type="button"
+    data-lightbox-src="${escapeAttribute(item.rawUrl || '')}"
+    data-lightbox-title="${escapeAttribute(title)}"
+    data-lightbox-download="${escapeAttribute(item.downloadUrl || '')}"
+    ${selectable ? `data-file-id="${item.id}" aria-pressed="false"` : ''}
+    aria-label="${selectable ? `选择图片：${escapeAttribute(title)}` : `查看原图：${escapeAttribute(title)}`}">
+    <img src="${escapeAttribute(item.thumbnailUrl || item.rawUrl || '')}" alt="" loading="lazy" decoding="async">
+    ${check}
+  </button>`;
+}
+
+// 溢出格：第 9 张缩略图做高斯模糊，右上角叠加 +X 徽标，点击走批次跳转（不弹灯箱）
+function fileOverflowTileMarkup(image, label, title) {
+  return `<button class="file-gallery-item is-overflow" type="button" data-batch-jump aria-label="${escapeAttribute(title)}">
+    <img src="${escapeAttribute(image.thumbnailUrl || image.rawUrl || '')}" alt="" aria-hidden="true" loading="lazy" decoding="async">
+    <span class="file-overflow-badge">${escapeHtml(label)}</span>
+  </button>`;
+}
+
+// 图片九宫格：超出 overflowLimit 时前 8 张清晰展示，
+// 第 9 格用被遮住的下一张图（高斯模糊）+ +X 溢出数充当（切分规则见 file-card-logic.js）
+function fileGalleryMarkup(images, { overflowLimit = 0 } = {}) {
+  const list = Array.isArray(images) ? images : [];
+  if (!list.length) return '';
+  const { visible, overflow, overflowCount } = FileCardLogic.splitGallery(list, overflowLimit || list.length);
+  const overflowTile = overflow
+    ? fileOverflowTileMarkup(overflow, `+${overflowCount}`, `共 ${list.length} 张图片，点击查看全部`)
+    : '';
+  return `<div class="file-gallery">${visible.map(imageTileMarkup).join('')}${overflowTile}</div>`;
+}
+
+// 音频溢出格：第 3 个位置放半透明模糊的播放器外观 + +X 徽标，整格点击跳详情页
+function audioOverflowMarkup(audio, label) {
+  return `<button class="audio-player is-overflow" type="button" data-batch-jump aria-label="查看全部音频">
+    <span class="audio-toggle" aria-hidden="true">${uiIcon('play', 18)}</span>
+    <div class="audio-body" aria-hidden="true">
+      <span class="audio-title">${escapeHtml(audio.title || audio.original_name || '音频')}</span>
+      <span class="audio-progress is-static"></span>
+      <span class="audio-time">00:00 / 00:00</span>
+    </div>
+    <span class="file-overflow-badge">${escapeHtml(label)}</span>
+  </button>`;
+}
+
+// 音频列表：超出 overflowLimit 时前 2 个正常可播，第 3 格为溢出格
+function audioSectionMarkup(audios, { overflowLimit = 0 } = {}) {
+  const list = Array.isArray(audios) ? audios : [];
+  if (!list.length) return '';
+  const { visible, overflow, overflowCount } = FileCardLogic.splitAudios(list, overflowLimit || list.length);
+  const overflowTile = overflow ? audioOverflowMarkup(overflow, `+${overflowCount}`) : '';
+  return `<div class="audio-list">${visible.map(audioPlayerMarkup).join('')}${overflowTile}</div>`;
+}
+
+function otherFileMarkup(item) {
+  const downloadUrl = item.downloadUrl;
+  return `<li class="other-file-item">
+    <span class="other-file-name">${escapeHtml(item.original_name || item.title || '文件')}</span>
+    <span class="other-file-size">${formatFileSize(item.file_size)}</span>
+    ${downloadUrl
+      ? `<a class="btn btn-secondary" href="${escapeAttribute(downloadUrl)}">下载</a>`
+      : '<span class="other-file-locked">需要密码</span>'}
+  </li>`;
+}
+
+function formatAudioTime(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function audioPlayerMarkup(audio) {
+  const src = audio.rawUrl || '';
+  const title = audio.title || audio.original_name || '音频';
+  return `<div class="audio-player" data-audio-src="${escapeAttribute(src)}">
+    <button class="audio-toggle" type="button" aria-label="播放音频：${escapeAttribute(title)}">${uiIcon('play', 18)}</button>
+    <div class="audio-body">
+      <span class="audio-title">${escapeHtml(title)}</span>
+      <input class="audio-progress" type="range" min="0" max="1000" value="0" step="1" aria-label="播放进度">
+      <span class="audio-time" aria-hidden="true">00:00 / 00:00</span>
+    </div>
+    <input class="audio-volume" type="range" min="0" max="1" value="1" step="0.05" aria-label="音量">
+    <audio preload="metadata" src="${escapeAttribute(src)}"></audio>
+  </div>`;
+}
+
+// 时长文案：当前播放时间 / 总时长
+function updateAudioTimeLabel(element, audio) {
+  if (!element) return;
+  element.textContent = `${formatAudioTime(audio.currentTime)} / ${formatAudioTime(audio.duration)}`;
+}
+
+function setupAudioPlayers(root = document) {
+  root.querySelectorAll('.audio-player[data-audio-src]').forEach(player => {
+    if (player.dataset.ready === '1') return;
+    const audio = player.querySelector('audio');
+    const toggle = player.querySelector('.audio-toggle');
+    const progress = player.querySelector('.audio-progress');
+    const volume = player.querySelector('.audio-volume');
+    const time = player.querySelector('.audio-time');
+    if (!audio || !toggle || !progress) return;
+    player.dataset.ready = '1';
+    // 记录初始无障碍文案（含音频名），暂停后还原
+    toggle.dataset.playLabel = toggle.getAttribute('aria-label') || '播放音频';
+
+    toggle.addEventListener('click', () => {
+      if (audio.paused) {
+        // 同时只播放一个，避免多个播放器混音
+        document.querySelectorAll('.audio-player audio').forEach(other => { if (other !== audio) other.pause(); });
+        audio.play();
+      } else {
+        audio.pause();
+      }
+    });
+    audio.addEventListener('play', () => {
+      toggle.innerHTML = uiIcon('pause', 18);
+      toggle.setAttribute('aria-label', '暂停音频');
+    });
+    audio.addEventListener('pause', () => {
+      toggle.innerHTML = uiIcon('play', 18);
+      toggle.setAttribute('aria-label', toggle.dataset.playLabel || '播放音频');
+    });
+    audio.addEventListener('loadedmetadata', () => updateAudioTimeLabel(time, audio));
+    audio.addEventListener('timeupdate', () => {
+      updateAudioTimeLabel(time, audio);
+      if (!audio.duration) return;
+      progress.value = String(Math.round((audio.currentTime / audio.duration) * 1000));
+    });
+    progress.addEventListener('input', () => {
+      if (!audio.duration) return;
+      audio.currentTime = (Number(progress.value) / 1000) * audio.duration;
+    });
+    if (volume) volume.addEventListener('input', () => { audio.volume = Number(volume.value); });
+  });
+}
+
+// 灯箱状态：同一九宫格内的图片可左右切换，并支持缩放与下载原图
+const fileLightboxState = { items: [], index: 0, zoom: 1, previousFocus: null };
+const FILE_LIGHTBOX_ZOOM_STEP = 0.5;
+const FILE_LIGHTBOX_MAX_ZOOM = 4;
+
+function fileLightboxElement() {
+  return document.getElementById('file-lightbox');
+}
+
+// 缩放：放大时按比例撑开图片宽度，配合灯箱自身的滚动即可查看局部
+function applyFileLightboxZoom(image) {
+  const zooming = fileLightboxState.zoom > 1;
+  image.style.width = zooming ? `${Math.round(fileLightboxState.zoom * 100)}%` : '';
+  image.style.maxWidth = zooming ? 'none' : '';
+  image.style.maxHeight = zooming ? 'none' : '';
+}
+
+// 按当前索引刷新灯箱内容与控件可用状态
+function renderFileLightbox() {
+  const lightbox = fileLightboxElement();
+  const item = fileLightboxState.items[fileLightboxState.index];
+  if (!lightbox || !item) return;
+
+  const image = lightbox.querySelector('.file-lightbox-image');
+  const caption = lightbox.querySelector('.file-lightbox-caption');
+  const counter = lightbox.querySelector('.file-lightbox-counter');
+  const download = lightbox.querySelector('.file-lightbox-download');
+  const multiple = fileLightboxState.items.length > 1;
+
+  if (image) {
+    image.src = item.src;
+    image.alt = item.title || '图片预览';
+    applyFileLightboxZoom(image);
+  }
+  if (caption) caption.textContent = item.title || '';
+  if (counter) {
+    counter.textContent = `${fileLightboxState.index + 1} / ${fileLightboxState.items.length}`;
+    counter.hidden = !multiple;
+  }
+  lightbox.querySelectorAll('.file-lightbox-nav').forEach(button => { button.hidden = !multiple; });
+  if (download) {
+    download.href = item.downloadUrl || '';
+    download.hidden = !item.downloadUrl;
+  }
+}
+
+function openFileLightbox(tile) {
+  const lightbox = fileLightboxElement();
+  if (!lightbox || !tile || !tile.dataset.lightboxSrc) return;
+
+  // 同一个九宫格内的清晰缩略图组成可切换的图片组
+  const gallery = tile.closest('.file-gallery');
+  const tiles = Array.from((gallery || tile.parentElement || document).querySelectorAll('[data-lightbox-src]'));
+  fileLightboxState.items = tiles.map(element => ({
+    src: element.dataset.lightboxSrc,
+    title: element.dataset.lightboxTitle || '',
+    downloadUrl: element.dataset.lightboxDownload || '',
+  }));
+  fileLightboxState.index = Math.max(0, tiles.indexOf(tile));
+  fileLightboxState.zoom = 1;
+
+  if (lightbox.hidden) fileLightboxState.previousFocus = document.activeElement;
+  lightbox.hidden = false;
+  document.body.classList.add('lightbox-open');
+  renderFileLightbox();
+
+  const close = lightbox.querySelector('.file-lightbox-close');
+  if (close) close.focus();
+}
+
+function closeFileLightbox() {
+  const lightbox = fileLightboxElement();
+  if (!lightbox || lightbox.hidden) return;
+  lightbox.hidden = true;
+  const image = lightbox.querySelector('.file-lightbox-image');
+  if (image) {
+    image.src = '';
+    image.style.width = '';
+    image.style.maxWidth = '';
+    image.style.maxHeight = '';
+  }
+  fileLightboxState.items = [];
+  fileLightboxState.index = 0;
+  fileLightboxState.zoom = 1;
+  document.body.classList.remove('lightbox-open');
+
+  if (fileLightboxState.previousFocus && typeof fileLightboxState.previousFocus.focus === 'function') {
+    fileLightboxState.previousFocus.focus();
+  }
+  fileLightboxState.previousFocus = null;
+}
+
+// 上一张 / 下一张（循环）
+function stepFileLightbox(delta) {
+  const total = fileLightboxState.items.length;
+  if (total < 2) return;
+  fileLightboxState.index = (fileLightboxState.index + delta + total) % total;
+  fileLightboxState.zoom = 1;
+  renderFileLightbox();
+}
+
+function zoomFileLightbox(delta) {
+  const next = Math.min(FILE_LIGHTBOX_MAX_ZOOM, Math.max(1, fileLightboxState.zoom + delta));
+  fileLightboxState.zoom = Math.round(next * 100) / 100;
+  renderFileLightbox();
+}
+
+// 全局事件委托：图片开灯箱、批次卡片/溢出格跳详情页
+function setupFileLightbox() {
+  const lightbox = fileLightboxElement();
+  if (lightbox) {
+    lightbox.addEventListener('click', event => {
+      if (event.target === lightbox || event.target.closest('.file-lightbox-close')) { closeFileLightbox(); return; }
+      if (event.target.closest('.file-lightbox-prev')) { stepFileLightbox(-1); return; }
+      if (event.target.closest('.file-lightbox-next')) { stepFileLightbox(1); return; }
+      if (event.target.closest('.file-lightbox-zoom-in')) { zoomFileLightbox(FILE_LIGHTBOX_ZOOM_STEP); return; }
+      if (event.target.closest('.file-lightbox-zoom-out')) { zoomFileLightbox(-FILE_LIGHTBOX_ZOOM_STEP); return; }
+      if (event.target.closest('.file-lightbox-zoom-reset')) {
+        fileLightboxState.zoom = 1;
+        renderFileLightbox();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', event => {
+    if (!lightbox || lightbox.hidden) return;
+    if (event.key === 'Escape') { event.preventDefault(); closeFileLightbox(); return; }
+    if (event.key === 'ArrowLeft') { event.preventDefault(); stepFileLightbox(-1); return; }
+    if (event.key === 'ArrowRight') { event.preventDefault(); stepFileLightbox(1); return; }
+    if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomFileLightbox(FILE_LIGHTBOX_ZOOM_STEP); return; }
+    if (event.key === '-' || event.key === '_') { event.preventDefault(); zoomFileLightbox(-FILE_LIGHTBOX_ZOOM_STEP); }
+  });
+
+  document.addEventListener('click', event => {
+    const tile = event.target.closest('[data-lightbox-src]');
+    if (!tile) return;
+    // 溢出格由批次跳转接管，绝不弹灯箱
+    if (event.target.closest('.file-gallery-item.is-overflow')) return;
+    event.preventDefault();
+    openFileLightbox(tile);
+  });
+
+  document.addEventListener('click', event => {
+    const trigger = event.target.closest('[data-batch-jump]');
+    if (!trigger) return;
+    const card = trigger.closest('[data-batch-url]');
+    if (!card) return;
+    window.location.href = card.dataset.batchUrl;
+  });
+}
+
+// ===== 首页热门文件：滚动加载 + 骨架屏 + 失败重试 + 首屏预加载缓存 =====
+
+const FILE_BATCH_PAGE_SIZE = 8;
+const FILE_BATCH_CACHE_KEY = 'jinchao:hot-files:first-page';
+
+const fileBatchState = { offset: 0, total: 0, hasMore: true, loading: false, observer: null };
+
+function renderBatchCard(batch) {
+  const detailUrl = `/file-detail.html?batch=${encodeURIComponent(batch.batchId)}`;
+  const sections = [];
+  if (batch.images.length) sections.push(fileGalleryMarkup(batch.images, { overflowLimit: FileCardLogic.IMAGE_GALLERY_LIMIT }));
+  if (batch.audios.length) sections.push(audioSectionMarkup(batch.audios, { overflowLimit: FileCardLogic.AUDIO_LIST_LIMIT }));
+  if (batch.others.length) sections.push(`<button class="file-others-card" type="button" data-batch-jump>共 ${batch.others.length} 个其他文件，点击查看</button>`);
+
+  // 热度悬浮提示：鼠标悬停即可看到该卡片热度的构成
+  const heatDetail = `热度 ${batch.heat}：下载 ${batch.download_count || 0} × 3 + 收藏 ${batch.favorite_count || 0} × 5 + 浏览 ${batch.view_count || 0} × 1`;
+
+  return `<article class="file-batch-card" data-batch-url="${escapeAttribute(detailUrl)}">
+    <header class="file-batch-head">
+      <span class="author-line">${userAvatarMarkup(batch.user_id, batch.avatarUrl, batch.username)}<span>${escapeHtml(batch.username)}</span></span>
+      <span class="file-batch-heat" title="${escapeAttribute(heatDetail)}">热度 ${Number(batch.heat) || 0}</span>
+    </header>
+    <h3 class="file-batch-title">${escapeHtml(batch.title)}</h3>
+    <p class="file-batch-meta">${new Date(batch.created_at).toLocaleString('zh-CN')} · 共 ${batch.total} 个文件${batch.passwordProtected ? ' · 需要密码' : ''}</p>
+    ${sections.join('')}
+    <a class="file-batch-more" href="${escapeAttribute(detailUrl)}">查看全部 →</a>
+  </article>`;
+}
+
+// 骨架屏：与真实卡片同尺寸，避免加载完成后的布局跳动
+function fileBatchSkeletonMarkup(count = FILE_BATCH_PAGE_SIZE) {
+  return Array.from({ length: count }, () => `
+    <div class="skeleton-card file-batch-skeleton" aria-hidden="true">
+      <div class="skeleton skeleton-title"></div>
+      <div class="skeleton file-batch-skeleton-grid"></div>
+      <div class="skeleton skeleton-line"></div>
+    </div>`).join('');
+}
+
+function setFileBatchStatus(text) {
+  const status = document.getElementById('file-batch-status');
+  if (status) status.textContent = text || '';
+}
+
+// 首屏结果写入会话缓存，返回首页时可立即渲染（弱网/离线也能看到上次内容）
+function readFileBatchCache() {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(FILE_BATCH_CACHE_KEY) || 'null');
+    return cached && Array.isArray(cached.batches) && cached.batches.length ? cached : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeFileBatchCache(data) {
+  try {
+    sessionStorage.setItem(FILE_BATCH_CACHE_KEY, JSON.stringify(data));
+  } catch (error) {
+    // 隐私模式或超额时忽略缓存失败
+  }
+}
+
+async function fetchFileBatches(offset) {
+  const response = await fetch(`${API_BASE}/api/file-batches?offset=${offset}&limit=${FILE_BATCH_PAGE_SIZE}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
+
+// 观察"加载更多"哨兵：进入视口即自动加载下一页
+function observeFileBatchSentinel() {
+  const sentinel = document.getElementById('file-batch-sentinel');
+  if (!sentinel) return;
+  if (fileBatchState.observer) {
+    fileBatchState.observer.disconnect();
+    fileBatchState.observer = null;
+  }
+  sentinel.hidden = !fileBatchState.hasMore;
+  if (!fileBatchState.hasMore || !('IntersectionObserver' in window)) return;
+
+  fileBatchState.observer = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) loadMoreFileBatches();
+  }, { rootMargin: '200px' });
+  fileBatchState.observer.observe(sentinel);
+}
+
+function loadMoreFileBatches() {
+  if (fileBatchState.loading || !fileBatchState.hasMore) return;
+  loadFileBatchPage({ append: true, offset: fileBatchState.offset });
+}
+
+async function loadFileBatchPage({ append = false, offset = 0 } = {}) {
+  const container = document.getElementById('file-batch-list');
+  if (!container || fileBatchState.loading) return;
+
+  fileBatchState.loading = true;
+  container.setAttribute('aria-busy', 'true');
+  const retry = document.getElementById('file-batch-retry');
+  if (retry) retry.hidden = true;
+
+  // 首屏没有任何卡片时才铺骨架屏（有会话缓存时直接沿用缓存内容）
+  if (!append && !container.querySelector('.file-batch-card')) container.innerHTML = fileBatchSkeletonMarkup();
+  setFileBatchStatus(append ? '正在加载更多热门文件…' : '正在加载热门文件…');
+
+  try {
+    const data = await fetchFileBatches(offset);
+    const batches = Array.isArray(data.batches) ? data.batches : [];
+
+    if (!append) container.innerHTML = '';
+    if (batches.length) {
+      container.insertAdjacentHTML('beforeend', batches.map(renderBatchCard).join(''));
+    } else if (!append) {
+      container.innerHTML = emptyStateMarkup(EMPTY_STATE_ICONS.box, '暂无热门文件', '上传文件，和大家共享资源');
+    }
+    // 新插入的卡片需要重新绑定音频播放器（播放/进度/时长/音量）
+    setupAudioPlayers(container);
+
+    fileBatchState.offset = offset + batches.length;
+    fileBatchState.total = Number(data.total) || 0;
+    fileBatchState.hasMore = Boolean(data.hasMore);
+    if (!append) writeFileBatchCache(data);
+    setFileBatchStatus(batches.length ? `已加载 ${batches.length} 个热门文件` : '已加载全部热门文件');
+  } catch (error) {
+    // 失败时保留已渲染内容（含会话缓存），并提供重试入口
+    if (!container.querySelector('.file-batch-card')) {
+      container.innerHTML = '<p class="loading">热门文件加载失败</p>';
+    }
+    if (retry) retry.hidden = false;
+    setFileBatchStatus('热门文件加载失败，可点击重试');
+  } finally {
+    fileBatchState.loading = false;
+    container.setAttribute('aria-busy', 'false');
+    observeFileBatchSentinel();
+  }
+}
+
+// 热门文件入口：先渲染会话缓存实现秒开，再请求最新数据替换
+async function renderFileBatches() {
+  const container = document.getElementById('file-batch-list');
+  if (!container) return;
+
+  const cached = readFileBatchCache();
+  if (cached && !container.querySelector('.file-batch-card')) {
+    container.innerHTML = cached.batches.map(renderBatchCard).join('');
+    fileBatchState.offset = cached.batches.length;
+    fileBatchState.total = Number(cached.total) || cached.batches.length;
+    fileBatchState.hasMore = Boolean(cached.hasMore);
+    setupAudioPlayers(container);
+  }
+  await loadFileBatchPage({ offset: 0 });
+}
+
+function setupFileBatches() {
+  const retry = document.getElementById('file-batch-retry');
+  if (retry) retry.addEventListener('click', () => loadFileBatchPage({ offset: 0 }));
+
+  const sentinel = document.getElementById('file-batch-sentinel');
+  // 不支持 IntersectionObserver 时，"加载更多"按钮手动点击兜底
+  if (sentinel) sentinel.addEventListener('click', loadMoreFileBatches);
+}
+
+// ===== 文件批次详情页 =====
+
+// 详情页当前批次：文件选择 / 打包下载共用（避免重复拉取）
+let fileDetailState = { batch: null };
+let fileDetailOwnerId = null;
+
+// 与 loadFiles / loadFileGallery 保持一致：当前登录用户 ID
+async function currentUserId() {
+  if (fileDetailOwnerId !== null) return fileDetailOwnerId;
+  try {
+    const response = await fetch(`${API_BASE}/api/user`);
+    const data = await response.json();
+    fileDetailOwnerId = data.success ? Number(data.user.id) : 0;
+  } catch (error) {
+    fileDetailOwnerId = 0;
+  }
+  return fileDetailOwnerId;
+}
+
+function isDetailBatchMine(batch) {
+  return Number(batch.user_id) === fileDetailOwnerId;
+}
+
+// 文件图标：按扩展名区分类型（图片 / 音频 / 视频 / 文档 / 其他）
+function fileIconFor(item, size = 16) {
+  const name = String(item.original_name || item.title || '');
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const key = [
+    ['png','jpg','jpeg','gif','webp','svg','bmp','avif','heic','ico'].includes(ext) ? 'image' : null,
+    ['mp3','wav','flac','m4a','aac','ogg','oga','opus','wma'].includes(ext) ? 'audio' : null,
+    ['mp4','webm','mkv','mov','avi','m4v','ts','3gp','flv'].includes(ext) ? 'video' : null,
+    ['mp4','mkv','mov','avi','webm','wmv','flv','m4v','ts','3gp'].includes(ext) ? 'video' : null,
+    ['pdf'].includes(ext) ? 'pdf' : null,
+    ['doc','docx','wps','rtf','txt','md','pages','odt'].includes(ext) ? 'doc' : null,
+    ['xls','xlsx','csv','numbers','ods'].includes(ext) ? 'sheet' : null,
+    ['ppt','pptx','key','odp'].includes(ext) ? 'slides' : null,
+    ['zip','rar','7z','tar','gz'].includes(ext) ? 'archive' : null,
+  ].find(Boolean);
+  const iconMap = {
+    image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.6-3.6a2 2 0 0 0-2.8 0L7 20"/>',
+    audio: '<path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/>',
+    video: '<path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/>',
+    pdf: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8m-8 4h5"/>',
+    doc: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8m-8 4h8m-8 4h5"/>',
+    sheet: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8M8 17h8M12 13v4"/>',
+    slides: '<rect width="20" height="14" x="2" y="5" rx="2"/><path d="M2 19h20M12 5v14"/>',
+    archive: '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+    generic: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+  };
+  return `<svg class="lib-file-icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconMap[key] || iconMap.generic}</svg>`;
+}
+
+// 图片缩略图（用于选择条）
+function detailThumbSrc(item) {
+  return item.thumbnailUrl || item.rawUrl || '';
+}
+
+async function fetchDetailPassword(fileId) {
+  const password = window.prompt(`请输入「${fileId}」对应文件的下载密码：`);
+  if (password === null) return null;
+  const response = await fetch(`${API_BASE}/api/files/${fileId}/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  const data = await response.json();
+  if (!data.success) {
+    showToast(data.message || '文件密码错误', 'error');
+    return null;
+  }
+  return password;
+}
+
+// 拉取单个文件的字节（密码保护文件先向用户要密码，owner 直接免密）
+async function fetchFileBlob(fileId, rawUrl, passwordProtected) {
+  if (passwordProtected) {
+    const password = await fetchDetailPassword(fileId);
+    if (!password) throw new Error('已取消密码输入');
+    const response = await fetch(`${API_BASE}/api/files/${fileId}/raw?password=${encodeURIComponent(password)}`);
+    if (!response.ok) throw new Error(`文件 ${fileId} 获取失败（HTTP ${response.status}）`);
+    return response.blob();
+  }
+  const response = await fetch(rawUrl);
+  if (!response.ok) throw new Error(`文件 ${fileId} 获取失败（HTTP ${response.status}）`);
+  return response.blob();
+}
+
+// ===== 零依赖 ZIP 生成（store 方法，CRC-32 + 本地/中心目录 + EOCD）=====
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let value = i;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[i] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(data) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < data.length; i += 1) {
+    crc = CRC32_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function dosDateTime(date) {
+  const time = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1);
+  const year = Math.max(1980, date.getFullYear());
+  const yearPart = (year - 1980) << 9;
+  return ((yearPart | (date.getMonth() + 1) << 5 | date.getDate()) << 16) | time;
+}
+
+function textToUtf8Bytes(text) {
+  return new TextEncoder().encode(text);
+}
+
+function uniqueZipEntryNames(files) {
+  const used = new Set();
+  return files.map(file => {
+    let base = String(file.name || `file-${file.id}`);
+    if (base.includes('..')) base = base.replace(/\.\./g, '');
+    let name = base;
+    let counter = 1;
+    while (used.has(name)) {
+      counter += 1;
+      name = `${base} (${counter})`;
+    }
+    used.add(name);
+    return name;
+  });
+}
+
+async function buildZipBlob(files, options = {}) {
+  const onProgress = options.onProgress || (() => {});
+  const names = uniqueZipEntryNames(files);
+  const chunks = [];
+  const localHeaders = [];
+  let offset = 0;
+
+  for (let i = 0; i < files.length; i += 1) {
+    const file = files[i];
+    const nameBytes = textToUtf8Bytes(names[i]);
+    const data = (file.data instanceof Uint8Array) ? file.data : new Uint8Array(file.data);
+    const crc = crc32(data);
+    const dosTime = dosDateTime(file.lastModified ? new Date(file.lastModified) : new Date());
+    const flagBits = 0x08; // UTF-8 文件名
+
+    const header = new Uint8Array(30 + nameBytes.length);
+    const view = new DataView(header.buffer);
+    view.setUint32(0, 0x04034b50, true);            // 本地文件头签名
+    view.setUint16(4, 20, true);                      // 版本需求 2.0
+    view.setUint16(6, flagBits, true);                // 通用标志：UTF-8 文件名
+    view.setUint16(8, 0, true);                       // 压缩方法：store（不压缩）
+    view.setUint16(10, dosTime & 0xffff, true);       // 修改时间
+    view.setUint16(12, (dosTime >>> 16) & 0xffff, true); // 修改日期
+    view.setUint32(14, crc, true);                    // CRC-32
+    view.setUint32(18, data.length, true);            // 压缩后大小
+    view.setUint32(22, data.length, true);            // 未压缩大小
+    view.setUint16(26, nameBytes.length, true);       // 文件名长度
+    view.setUint16(28, 0, true);                      // 文件注释长度
+    header.set(nameBytes, 30);
+
+    chunks.push(header, data);
+    localHeaders.push({ crc, compressedSize: data.length, uncompressedSize: data.length, nameBytes, localOffset: offset });
+    offset += header.length + data.length;
+
+    onProgress({ current: i + 1, total: files.length, name: names[i] });
+  }
+
+  // 中心目录
+  const centralChunks = [];
+  let centralSize = 0;
+  localHeaders.forEach(entry => {
+    const central = new Uint8Array(46 + entry.nameBytes.length);
+    const view = new DataView(central.buffer);
+    view.setUint32(0, 0x02014b50, true);
+    view.setUint16(4, 20, true);
+    view.setUint16(6, 20, true);
+    view.setUint16(8, 0, true);
+    view.setUint16(10, 0x08, true);
+    view.setUint16(12, 0, true);
+    view.setUint16(14, 0, true);
+    view.setUint32(16, entry.crc, true);
+    view.setUint32(20, entry.compressedSize, true);
+    view.setUint32(24, entry.uncompressedSize, true);
+    view.setUint16(28, entry.nameBytes.length, true);
+    view.setUint16(30, 0, true);
+    view.setUint16(32, 0, true);
+    view.setUint16(34, 0, true);
+    view.setUint16(36, 0, true);
+    view.setUint32(38, 0, true);
+    view.setUint32(42, entry.localOffset, true);
+    central.set(entry.nameBytes, 46);
+    centralChunks.push(central);
+    centralSize += central.length;
+  });
+
+  const eocd = new Uint8Array(22);
+  const eocdView = new DataView(eocd.buffer);
+  eocdView.setUint32(0, 0x06054b50, true);
+  eocdView.setUint16(4, 0, true);
+  eocdView.setUint16(6, 0, true);
+  eocdView.setUint16(8, localHeaders.length, true);
+  eocdView.setUint16(10, localHeaders.length, true);
+  eocdView.setUint32(12, centralSize, true);
+  eocdView.setUint32(16, offset, true);
+  eocdView.setUint16(20, 0, true);
+
+  return new Blob([...chunks, ...centralChunks, eocd], { type: 'application/zip' });
+}
+
+function triggerBlobDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename || 'download.zip';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// 打包当前选中的文件为单个 ZIP 并下载（进度：逐文件获取 + 打包进度）
+async function packageSelectedFilesAsZip() {
+  const button = document.getElementById('file-detail-package-btn');
+  const progress = document.getElementById('file-detail-zip-progress');
+  if (!button || !fileDetailState.batch) return;
+
+  const allFiles = [
+    ...fileDetailState.batch.images,
+    ...fileDetailState.batch.audios,
+    ...fileDetailState.batch.others,
+  ];
+  const selected = allFiles.filter(item => document.getElementById(`file-select-${item.id}`)?.checked);
+  if (!selected.length) {
+    showToast('请先勾选要打包的文件', 'info');
+    return;
+  }
+
+  button.disabled = true;
+  if (progress) progress.hidden = false;
+  const total = selected.length;
+
+  try {
+    const entries = [];
+    for (let i = 0; i < total; i += 1) {
+      const item = selected[i];
+      updateZipProgress({ current: i + 1, total, name: item.original_name || item.title, phase: 'fetching' });
+      const blob = await fetchFileBlob(item.id, item.rawUrl, item.passwordProtected);
+      entries.push({
+        name: item.original_name || item.title || `file-${item.id}`,
+        data: new Uint8Array(await blob.arrayBuffer()),
+        lastModified: item.created_at ? new Date(item.created_at) : new Date(),
+      });
+      updateZipProgress({ current: i + 1, total, name: item.original_name || item.title, phase: 'packing' });
+    }
+
+    updateZipProgress({ current: total, total, phase: 'packing' });
+    const zipBlob = await buildZipBlob(entries);
+    updateZipProgress({ current: total, total, phase: 'done' });
+    triggerBlobDownload(zipBlob, `${fileDetailState.batch.title || 'files'}.zip`);
+    showToast(`已打包 ${total} 个文件为 ZIP，开始下载`, 'success');
+  } catch (error) {
+    if (error && error.message === '已取消密码输入') {
+      showToast('已取消打包', 'info');
+    } else {
+      showToast(`打包失败：${error.message || error}`, 'error');
+    }
+  } finally {
+    button.disabled = false;
+    setTimeout(() => {
+      if (progress) progress.hidden = true;
+      setZipProgressText('');
+    }, 1200);
+  }
+}
+
+function updateZipProgress(state) {
+  const progress = document.getElementById('file-detail-zip-progress');
+  const bar = document.getElementById('file-detail-zip-bar');
+  const text = document.getElementById('file-detail-zip-text');
+  if (!progress || !bar || !text) return;
+
+  const percent = state.phase === 'done'
+    ? 100
+    : Math.round(((state.current || 0) / state.total) * 100);
+  bar.style.width = `${percent}%`;
+  bar.setAttribute('aria-valuenow', String(percent));
+
+  const label = state.phase === 'done'
+    ? 'ZIP 打包完成'
+    : state.phase === 'packing'
+      ? `正在打包 ${state.name}（${state.current}/${state.total}）`
+      : `正在获取 ${state.name}（${state.current}/${state.total}）`;
+  text.textContent = label;
+}
+
+function setZipProgressText(text) {
+  const target = document.getElementById('file-detail-zip-text');
+  if (target) target.textContent = text || '';
+  const bar = document.getElementById('file-detail-zip-bar');
+  if (bar && (text === '' || text === undefined)) {
+    bar.style.width = '0%';
+  }
+}
+
+function detailSelectionToolbarMarkup(batch) {
+  const allFiles = [
+    ...batch.images,
+    ...batch.audios,
+    ...batch.others,
+  ];
+  const totalSize = allFiles.reduce((sum, item) => sum + (Number(item.file_size) || 0), 0);
+  const mine = isDetailBatchMine(batch);
+  const ownerOnly = !mine;
+
+  return `
+    <div class="file-detail-select-bar" role="group" aria-label="文件选择与打包下载">
+      <label class="file-select-all">
+        <input type="checkbox" id="file-select-all" aria-label="全选当前批次所有文件">
+        <span class="file-select-all-text">全选（${allFiles.length} 个文件）</span>
+      </label>
+      <span class="file-select-count" aria-live="polite"><span id="file-select-count-num">0</span> / ${allFiles.length} 已选</span>
+      <span class="file-select-size" aria-live="polite">已选大小 <span id="file-select-size-num">0 B</span></span>
+      <button type="button" class="btn btn-primary file-detail-package-btn" id="file-detail-package-btn" ${ownerOnly ? 'disabled' : ''} title="${ownerOnly ? '仅文件所有者可以打包下载' : '将已选文件打包为 ZIP 并下载'}">
+        打包下载 ZIP（已选 <span id="file-select-count-num2">0</span> 个）
+      </button>
+    </div>
+    <div class="zip-progress" id="file-detail-zip-progress" hidden aria-live="polite">
+      <div class="upload-progress-track"><div class="upload-progress-bar" id="file-detail-zip-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
+      <span class="upload-progress-text" id="file-detail-zip-text"></span>
+    </div>
+  `;
+}
+
+// 可勾选的文件行：图片 / 音频 / 其他 共用（图片用缩略图，其余用文件图标）
+// 整行为 label：点击行切换勾选，不触发下载
+function selectableFileItemMarkup(item, kind) {
+  const name = item.original_name || item.title || '文件';
+  const thumb = kind === 'image'
+    ? `<img class="file-select-item-thumb" src="${escapeAttribute(detailThumbSrc(item))}" alt="" loading="lazy" decoding="async">`
+    : fileIconFor(item, 20);
+  const lock = item.passwordProtected ? `<span class="file-select-locked" title="需要密码">🔒</span>` : '';
+  return `
+    <label class="file-select-item" data-file-id="${item.id}">
+      <input type="checkbox" class="file-select-check" id="file-select-${item.id}" data-file-id="${item.id}" ${item.passwordProtected ? 'disabled' : ''} aria-label="选择文件：${escapeAttribute(name)}">
+      <span class="file-select-item-media">${thumb}</span>
+      <span class="file-select-item-name" title="${escapeAttribute(name)}">${escapeHtml(name)}</span>
+      <span class="file-select-item-meta">${formatFileSize(item.file_size)}${item.created_at ? ` · ${new Date(item.created_at).toLocaleDateString('zh-CN')}` : ''} ${lock}</span>
+      <span class="file-select-item-state" aria-hidden="true">未选中</span>
+    </label>`;
+}
+
+function detailFilesSectionMarkup(batch) {
+  const sections = [];
+  const allFiles = [...batch.images, ...batch.audios, ...batch.others];
+  sections.push(`
+    <section class="file-detail-section">
+      <h2>全部文件（${allFiles.length}）</h2>
+      <div class="file-select-list">${allFiles.map(item => selectableFileItemMarkup(item, 'file')).join('')}</div>
+    </section>`);
+  if (batch.images.length) sections.push(`
+    <section class="file-detail-section image-select-block">
+      <div class="image-select-toolbar">
+        <h2>图片（${batch.images.length}）</h2>
+        <label class="image-select-all"><input type="checkbox" id="image-select-all" aria-label="全选所有图片"><span>全选</span></label>
+        <button type="button" class="btn btn-primary btn-small image-download-btn" id="image-download-btn" hidden>
+          下载已选（<span id="image-selected-count">0</span>）
+        </button>
+      </div>
+      <div class="file-gallery image-select-gallery">${batch.images.map(item => imageTileMarkup(item, true)).join('')}</div>
+    </section>`);
+  if (batch.audios.length) sections.push(`<section class="file-detail-section"><h2>音频（${batch.audios.length}）</h2>${audioSectionMarkup(batch.audios)}</section>`);
+  if (batch.others.length) sections.push(`<section class="file-detail-section"><h2>其他文件（${batch.others.length}）</h2><ul class="other-file-list">${batch.others.map(otherFileMarkup).join('')}</section>`);
+  return sections.join('');
+}
+
+// 文件选择交互：勾选 / 全选 / 已选计数与大小 / 打包按钮可用态
+function setupFileDetailSelection() {
+  const container = document.getElementById('file-detail-content');
+  if (!container || !fileDetailState.batch) return;
+
+  const batch = fileDetailState.batch;
+  const allFiles = [...batch.images, ...batch.audios, ...batch.others];
+  const protectableIds = allFiles.filter(item => !item.passwordProtected).map(item => item.id);
+
+  const countEl = container.querySelector('#file-select-count-num');
+  const countEl2 = container.querySelector('#file-select-count-num2');
+  const sizeEl = container.querySelector('#file-select-size-num');
+  const selectAll = document.getElementById('file-select-all');
+  const packageBtn = document.getElementById('file-detail-package-btn');
+
+  function refresh() {
+    const boxes = Array.from(container.querySelectorAll('.file-select-check'));
+    const checked = boxes.filter(box => box.checked);
+    const checkedIds = new Set(checked.map(box => Number(box.dataset.fileId)));
+    const checkedSize = allFiles
+      .filter(item => checkedIds.has(item.id))
+      .reduce((sum, item) => sum + (Number(item.file_size) || 0), 0);
+
+    if (countEl) countEl.textContent = String(checked.length);
+    if (countEl2) countEl2.textContent = String(checked.length);
+    if (sizeEl) sizeEl.textContent = formatFileSize(checkedSize);
+
+    const isMine = isDetailBatchMine(batch);
+    if (selectAll) {
+      selectAll.checked = checked.length === allFiles.length && allFiles.length > 0;
+      selectAll.indeterminate = checked.length > 0 && checked.length < allFiles.length;
+      selectAll.disabled = !isMine;
+    }
+    if (packageBtn) packageBtn.disabled = !isMine || checked.length === 0;
+
+    boxes.forEach(box => {
+      const item = container.querySelector(`.file-select-item[data-file-id="${box.dataset.fileId}"]`);
+      if (!item) return;
+      item.classList.toggle('is-checked', box.checked);
+      const state = item.querySelector('.file-select-item-state');
+      if (state) state.textContent = box.checked ? '已选中' : '未选中';
+    });
+
+    syncImageTiles();
+  }
+
+  // ===== 图片预览选择：点击图片切换选中（右下角复选框动态显隐），与文件列表选择框双向同步 =====
+  const imageTiles = Array.from(container.querySelectorAll('.image-select-gallery .file-gallery-item[data-file-id]'));
+  const imageSelectAll = document.getElementById('image-select-all');
+  const imageDownloadBtn = document.getElementById('image-download-btn');
+  const imageSelectedCount = document.getElementById('image-selected-count');
+  const selectableImages = batch.images.filter(item => !item.passwordProtected);
+
+  function updateImageToolbar() {
+    const selected = selectableImages.filter(item => document.getElementById(`file-select-${item.id}`)?.checked);
+    if (imageSelectedCount) imageSelectedCount.textContent = String(selected.length);
+    if (imageDownloadBtn) imageDownloadBtn.hidden = selected.length === 0;
+    if (imageSelectAll) {
+      imageSelectAll.checked = selectableImages.length > 0 && selected.length === selectableImages.length;
+      imageSelectAll.indeterminate = selected.length > 0 && selected.length < selectableImages.length;
+    }
+  }
+
+  // 单一数据源 = 文件列表选择框；图片格子的选中样式随其同步
+  function syncImageTiles() {
+    imageTiles.forEach(tile => {
+      const box = document.getElementById(`file-select-${tile.dataset.fileId}`);
+      if (!box) return;
+      const selected = box.checked;
+      tile.classList.toggle('is-selected', selected);
+      tile.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+    updateImageToolbar();
+  }
+
+  container.addEventListener('click', event => {
+    const tile = event.target.closest('.image-select-gallery .file-gallery-item[data-file-id]');
+    if (!tile) return;
+    const box = document.getElementById(`file-select-${tile.dataset.fileId}`);
+    if (!box) return;
+    event.preventDefault();
+    event.stopPropagation(); // 详情页点击图片 = 切换选中，不弹灯箱
+    if (box.disabled) {
+      showToast('该图片需要密码，暂不支持选择下载', 'info');
+      return;
+    }
+    box.checked = !box.checked;
+    refresh();
+  });
+
+  if (imageSelectAll) {
+    imageSelectAll.addEventListener('change', () => {
+      selectableImages.forEach(item => {
+        const box = document.getElementById(`file-select-${item.id}`);
+        if (box) box.checked = imageSelectAll.checked;
+      });
+      refresh();
+    });
+  }
+
+  if (imageDownloadBtn) {
+    imageDownloadBtn.addEventListener('click', () => packageSelectedFilesAsZip());
+  }
+
+  container.addEventListener('change', event => {
+    const box = event.target.closest('.file-select-check');
+    if (!box) return;
+    refresh();
+  });
+
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      protectableIds.forEach(id => {
+        const target = document.getElementById(`file-select-${id}`);
+        if (target) target.checked = selectAll.checked;
+      });
+      refresh();
+    });
+  }
+
+  if (packageBtn) packageBtn.addEventListener('click', () => {
+    if (!packageBtn.disabled) packageSelectedFilesAsZip();
+  });
+
+  refresh();
+}
+
+async function initFileDetailPage() {
+  const container = document.getElementById('file-detail-content');
+  if (!container) return;
+
+  const batchId = new URLSearchParams(window.location.search).get('batch') || '';
+  if (!batchId) {
+    container.innerHTML = '<p class="loading">缺少批次参数</p>';
+    return;
+  }
+
+  try {
+    const [batchResponse, ownerId] = await Promise.all([
+      fetch(`${API_BASE}/api/file-batches/${encodeURIComponent(batchId)}`),
+      currentUserId(),
+    ]);
+    if (!batchResponse.ok) {
+      container.innerHTML = '<p class="loading">批次不存在或已被删除</p>';
+      return;
+    }
+    const batch = await batchResponse.json();
+    fileDetailState.batch = batch;
+
+    document.title = `${batch.title} - 文件详情 - 烬潮`;
+    container.innerHTML = `<article class="file-detail-card">
+      <header class="file-batch-head">
+        <span class="author-line">${userAvatarMarkup(batch.user_id, batch.avatarUrl, batch.username)}<span>${escapeHtml(batch.username)}</span></span>
+        <span class="file-batch-meta">${new Date(batch.created_at).toLocaleString('zh-CN')} · 共 ${batch.total} 个文件${batch.passwordProtected ? ' · 需要密码' : ''}</span>
+      </header>
+      <h1>${escapeHtml(batch.title)}</h1>
+      ${detailSelectionToolbarMarkup(batch)}
+      ${detailFilesSectionMarkup(batch)}
+    </article>`;
+    setupAudioPlayers(container);
+    setupDetailCards();
+    setupFileDetailSelection();
+  } catch (error) {
+    container.innerHTML = '<p class="loading">文件详情加载失败</p>';
+  }
+}
+
+// ===== 文件库：上传文件库（批次卡片）+ 预下载文件库（云盘，200MB 配额）=====
+
+// 预下载库状态：最近一次拉取到的文件 + 选中集合（批量操作共用）
+let preFileState = { files: [], selected: new Set() };
+
+// 入口：登录态下分别渲染两库；未登录仅渲染占位
+function loadMyFileLibrary() {
+  loadUploadFileLibrary();
+  loadPreFileLibrary();
+}
+
+// a) 上传文件库：按批次聚合为卡片，每个文件显示图标 / 名称 / 大小 / 时间
+async function loadUploadFileLibrary() {
+  const container = document.getElementById('upload-file-batches');
+  if (!container) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/my-file-batches`);
+    const data = await response.json();
+    const batches = Array.isArray(data.batches) ? data.batches : [];
+
+    if (!batches.length) {
+      container.innerHTML = '<p class="empty-comments">你还没有上传过文件</p>';
+      return;
+    }
+
+    container.innerHTML = `<div class="upload-batch-grid">${batches.map(uploadBatchCardMarkup).join('')}</div>`;
+  } catch (error) {
+    container.innerHTML = '<p class="loading">上传文件库加载失败</p>';
+  }
+}
+
+function uploadBatchCardMarkup(batch) {
+  const isLegacy = String(batch.batchId).startsWith('legacy-');
+  const fileRows = batch.files.map(file => `
+    <li class="batch-file-row">
+      <span class="batch-file-media">${file.thumbnailUrl
+        ? `<img src="${escapeAttribute(file.thumbnailUrl)}" alt="" loading="lazy" decoding="async">`
+        : fileIconFor({ original_name: file.original_name, title: file.title }, 20)}</span>
+      <span class="batch-file-name" title="${escapeAttribute(file.original_name || file.title)}">${escapeHtml(file.original_name || file.title)}</span>
+      <span class="batch-file-size">${formatFileSize(file.file_size)}</span>
+      <span class="batch-file-time">${file.created_at ? new Date(file.created_at).toLocaleDateString('zh-CN') : ''}</span>
+      <span class="batch-file-actions">
+        ${file.passwordProtected ? '<span class="batch-file-lock" title="需要密码">🔒</span>' : ''}
+        <a class="btn btn-ghost btn-small" href="${file.downloadUrl}">下载</a>
+      </span>
+    </li>`).join('');
+
+  return `
+    <article class="upload-batch-card">
+      <header class="upload-batch-head">
+        <span class="upload-batch-title">${escapeHtml(batch.title || '未命名批次')}</span>
+        <span class="upload-batch-meta">${batch.total} 个文件 · ${formatFileSize(batch.totalSize)}${isLegacy ? ' · 历史上传' : ''}</span>
+        <time class="upload-batch-time" datetime="${escapeAttribute(batch.createdAt)}">${batch.createdAt ? new Date(batch.createdAt).toLocaleString('zh-CN') : ''}</time>
+      </header>
+      <ul class="upload-batch-files">${fileRows}</ul>
+    </article>`;
+}
+
+// b) 预下载文件库：拉取列表 + 用量，渲染云盘视图并绑定交互
+async function loadPreFileLibrary() {
+  const list = document.getElementById('pre-file-list');
+  if (!list) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/pre-files`);
+    const data = await response.json();
+    const files = Array.isArray(data.files) ? data.files : [];
+    const used = Number(data.used) || 0;
+    const quota = Number(data.quota) || 200 * 1024 * 1024;
+
+    preFileState.files = files;
+    preFileState.selected = new Set();
+    renderPreFileList(files);
+    renderPreStorageUsage(used, quota, files.length);
+    setupPreFileInteractions();
+  } catch (error) {
+    list.innerHTML = '<li class="pre-file-empty">预下载库加载失败</li>';
+  }
+}
+
+function renderPreFileList(files) {
+  const list = document.getElementById('pre-file-list');
+  if (!list) return;
+
+  if (!files.length) {
+    list.innerHTML = '<li class="pre-file-empty">预下载库暂无文件，点击右上角「存入文件」把文件保存到 200MB 空间内。</li>';
+    return;
+  }
+
+  list.innerHTML = files.map(file => `
+    <li class="pre-file-item" data-file-id="${file.id}">
+      <input type="checkbox" class="pre-file-check" id="pre-file-${file.id}" data-file-id="${file.id}" aria-label="选择：${escapeAttribute(file.original_name)}">
+      <span class="pre-file-media">${fileIconFor({ original_name: file.original_name, title: file.original_name }, 20)}</span>
+      <span class="pre-file-name" title="${escapeAttribute(file.original_name)}">${escapeHtml(file.original_name)}</span>
+      <span class="pre-file-size">${formatFileSize(file.file_size)}</span>
+      <span class="pre-file-time">${file.created_at ? new Date(file.created_at).toLocaleDateString('zh-CN') : ''}</span>
+      <span class="pre-file-actions">
+        <a class="btn btn-ghost btn-small" href="${file.downloadUrl}">下载</a>
+        <button class="btn btn-danger btn-small" type="button" data-pre-delete="${file.id}">删除</button>
+      </span>
+    </li>`).join('');
+}
+
+function renderPreStorageUsage(used, quota, fileCount) {
+  const usedEl = document.getElementById('pre-storage-used');
+  const quotaEl = document.getElementById('pre-storage-quota');
+  const countEl = document.getElementById('pre-file-count');
+  const track = document.getElementById('pre-storage-track');
+  const bar = document.getElementById('pre-storage-bar');
+  if (!usedEl) return;
+
+  usedEl.textContent = formatFileSize(used);
+  if (quotaEl) quotaEl.textContent = formatFileSize(quota);
+  if (countEl) countEl.textContent = String(fileCount);
+
+  const percent = quota > 0 ? Math.min(100, Math.round((used / quota) * 100)) : 0;
+  if (bar) {
+    bar.style.width = `${percent}%`;
+    bar.classList.toggle('is-warning', percent >= 80 && percent < 100);
+    bar.classList.toggle('is-full', percent >= 100);
+  }
+  if (track) track.setAttribute('aria-valuenow', String(percent));
+}
+
+function selectedPreFileIds() {
+  return Array.from(document.querySelectorAll('.pre-file-check:checked')).map(box => Number(box.dataset.fileId));
+}
+
+function refreshPreToolbar() {
+  const boxes = Array.from(document.querySelectorAll('.pre-file-check'));
+  const selectedIds = boxes.filter(box => box.checked).map(box => Number(box.dataset.fileId));
+  preFileState.selected = new Set(selectedIds);
+
+  const all = document.getElementById('pre-file-select-all');
+  if (all) {
+    all.checked = boxes.length > 0 && selectedIds.length === boxes.length;
+    all.indeterminate = selectedIds.length > 0 && selectedIds.length < boxes.length;
+  }
+
+  const countEl = document.getElementById('pre-file-selected-count');
+  if (countEl) countEl.textContent = `已选 ${selectedIds.length} 个`;
+
+  const downloadBtn = document.getElementById('pre-file-batch-download');
+  const deleteBtn = document.getElementById('pre-file-batch-delete');
+  if (downloadBtn) downloadBtn.disabled = selectedIds.length === 0;
+  if (deleteBtn) deleteBtn.disabled = selectedIds.length === 0;
+
+  boxes.forEach(box => {
+    const item = box.closest('.pre-file-item');
+    if (item) item.classList.toggle('is-checked', box.checked);
+  });
+}
+
+function setupPreFileInteractions() {
+  const list = document.getElementById('pre-file-list');
+  if (list) {
+    list.addEventListener('change', event => {
+      if (event.target.classList.contains('pre-file-check')) refreshPreToolbar();
+    });
+    list.addEventListener('click', event => {
+      const deleteBtn = event.target.closest('[data-pre-delete]');
+      if (deleteBtn) deletePreFile(Number(deleteBtn.dataset.preDelete));
+    });
+  }
+
+  const all = document.getElementById('pre-file-select-all');
+  if (all) {
+    all.addEventListener('change', () => {
+      document.querySelectorAll('.pre-file-check').forEach(box => { box.checked = all.checked; });
+      refreshPreToolbar();
+    });
+  }
+
+  const downloadBtn = document.getElementById('pre-file-batch-download');
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', () => {
+      const ids = selectedPreFileIds();
+      if (!ids.length) return;
+      window.location.href = `${API_BASE}/api/pre-files/zip?ids=${ids.join(',')}`;
+    });
+  }
+
+  const deleteBtn = document.getElementById('pre-file-batch-delete');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => {
+      const ids = selectedPreFileIds();
+      if (!ids.length) return;
+      bulkDeletePreFiles(ids);
+    });
+  }
+
+  const input = document.getElementById('pre-file-input');
+  if (input) {
+    input.addEventListener('change', () => {
+      if (input.files && input.files.length) uploadPreFiles(input.files);
+    });
+  }
+
+  refreshPreToolbar();
+}
+
+// 存入文件到预下载库（multipart 直传，服务端按 200MB 配额校验）
+function uploadPreFiles(files) {
+  const form = new FormData();
+  Array.from(files).forEach(file => form.append('pre_files', file));
+
+  fetch(`${API_BASE}/api/pre-files`, { method: 'POST', body: form })
+    .then(response => response.json())
+    .then(data => {
+      if (!data.success) {
+        showToast(data.message || '存入失败', 'error');
+        return;
+      }
+      showToast(data.message || '已存入', 'success');
+      document.getElementById('pre-file-input').value = '';
+      loadPreFileLibrary();
+    })
+    .catch(() => showToast('存入失败，请重试', 'error'));
+}
+
+async function deletePreFile(id) {
+  if (!window.confirm('确定删除该预下载文件？')) return;
+  const response = await fetch(`${API_BASE}/api/pre-files/${id}`, { method: 'DELETE' });
+  const data = await response.json();
+  if (!data.success) {
+    showToast(data.message || '删除失败', 'error');
+    return;
+  }
+  showToast(data.message || '已删除', 'success');
+  loadPreFileLibrary();
+}
+
+async function bulkDeletePreFiles(ids) {
+  if (!window.confirm(`确定删除选中的 ${ids.length} 个预下载文件？`)) return;
+  const response = await fetch(`${API_BASE}/api/pre-files`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  const data = await response.json();
+  if (!data.success) {
+    showToast(data.message || '删除失败', 'error');
+    return;
+  }
+  showToast(data.message || '已删除', 'success');
+  loadPreFileLibrary();
+}
+
+// 上传后刷新两库（批次卡片 + 预下载库用量）
+function refreshMyFileLibrary() {
+  loadUploadFileLibrary();
+  loadPreFileLibrary();
 }
 
 async function handleVideoUpload(event) {
@@ -3106,5 +4713,14 @@ function escapeHtml(text) {
     document.addEventListener('DOMContentLoaded', revealSections);
   } else {
     revealSections();
+  }
+})();
+
+// 文件灯箱与批次跳转的全局委托（含灯箱的页面共用，只挂一次）
+(function initFileInteractions() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupFileLightbox);
+  } else {
+    setupFileLightbox();
   }
 })();

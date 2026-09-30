@@ -9,7 +9,9 @@ const { promisify } = require('util');
 const multer = require('multer');
 const { rateLimit } = require('express-rate-limit');
 const db = require('./database');
-const { sendVerificationEmail, sendReportNotificationEmail } = require('./email');
+// 文件卡片纯逻辑（热度计算 / 排序）：与前端 app.js、单元测试共用同一份实现
+const FileCardLogic = require('./public/js/file-card-logic.js');
+const { sendVerificationEmail, sendReportNotificationEmail, sendPasswordResetEmail, sendPasswordChangedEmail } = require('./email');
 const config = require('./config');
 const {
   normalizeEmail,
@@ -18,18 +20,24 @@ const {
   validatePostInput,
   validateBarrageCreate,
   validateBarrageUpdate,
+  validateUploadFile,
 } = require('./validation');
 
 const app = express();
 const videoDirectory = path.join(__dirname, 'public', 'uploads', 'videos');
 const fileDirectory = path.join(__dirname, 'public', 'uploads', 'files');
+// 预下载文件库（云盘式空间）：与上传文件库相互独立的存储目录
+const preFileDirectory = path.join(__dirname, 'public', 'uploads', 'pre_files');
 const avatarDirectory = path.join(__dirname, 'public', 'uploads', 'avatars');
+const thumbnailDirectory = path.join(__dirname, 'public', 'uploads', 'thumbnails');
 const hlsDirectory = path.join(videoDirectory, 'hls');
 const execFileAsync = promisify(execFile);
 fs.mkdirSync(videoDirectory, { recursive: true });
 fs.mkdirSync(fileDirectory, { recursive: true });
+fs.mkdirSync(preFileDirectory, { recursive: true });
 fs.mkdirSync(avatarDirectory, { recursive: true });
 fs.mkdirSync(hlsDirectory, { recursive: true });
+fs.mkdirSync(thumbnailDirectory, { recursive: true });
 
 function mediaUrl(filename) {
   return filename ? `/uploads/videos/${filename.split('/').map(encodeURIComponent).join('/')}` : null;
@@ -39,12 +47,18 @@ function avatarUrl(filename) {
   return filename ? `/uploads/avatars/${encodeURIComponent(filename)}` : null;
 }
 
-function listOptions(req) {
+function listOptions(req, defaultLimit = 6, maxLimit = 100) {
   const requestedLimit = Number.parseInt(req.query.limit, 10);
   return {
-    limit: Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 6,
+    limit: Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), maxLimit) : defaultLimit,
     sort: req.query.sort === 'hot' ? 'hot' : 'latest',
   };
+}
+
+// 分页偏移：非法值一律回落到 0
+function offsetOption(req) {
+  const requestedOffset = Number.parseInt(req.query.offset, 10);
+  return Number.isFinite(requestedOffset) && requestedOffset > 0 ? requestedOffset : 0;
 }
 
 function getHlsPlaylist(video) {
@@ -116,18 +130,60 @@ async function transcodeVideo(inputPath, baseName) {
   return { mp4Filename, webmFilename, posterFilename, hlsPlaylist: `hls/${outputBaseName}/index.m3u8` };
 }
 
+// 多文件上传：files 为文件本体，thumbnails 为前端生成的图片缩略图
 const fileUpload = multer({
   storage: multer.diskStorage({
-    destination: fileDirectory,
+    destination: (req, file, callback) => {
+      callback(null, file.fieldname === 'thumbnails' ? thumbnailDirectory : fileDirectory);
+    },
     filename: (req, file, callback) => {
       const extension = path.extname(file.originalname).toLowerCase();
       callback(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${extension}`);
     },
   }),
   limits: {
-    fileSize: 200 * 1024 * 1024,
+    fileSize: 200 * 1024 * 1024, // 单个文件 200MB
+    files: 40,                   // 最多 20 个文件 + 20 个缩略图
+  },
+  fileFilter: (req, file, callback) => {
+    // 缩略图只允许图片
+    if (file.fieldname === 'thumbnails') {
+      return callback(null, String(file.mimetype).startsWith('image/'));
+    }
+
+    // 文件本体做格式校验：不合法则记录原因并跳过该文件（其余文件继续）
+    const rejection = validateUploadFile(file.originalname);
+    if (rejection) {
+      req.rejectedFiles = req.rejectedFiles || [];
+      req.rejectedFiles.push({ name: file.originalname, reason: rejection });
+      return callback(null, false);
+    }
+
+    callback(null, true);
   },
 });
+
+// 包装 multer 中间件，把 multer 的错误转成统一 JSON
+function fileUploadFields(req, res, next) {
+  fileUpload.fields([{ name: 'files', maxCount: 20 }, { name: 'thumbnails', maxCount: 20 }])(req, res, error => {
+    if (!error) return next();
+
+    // 出错时清理本次已落盘的文件，避免留下垃圾
+    if (req.files && typeof req.files === 'object') {
+      Object.values(req.files).flat().forEach(item => {
+        try { fs.rmSync(item.path, { force: true }); } catch (cleanupError) { /* 忽略清理失败 */ }
+      });
+    }
+
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.json({ success: false, message: '单个文件不能超过 200MB' });
+    }
+    if (error.code === 'LIMIT_FILE_COUNT' || error.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.json({ success: false, message: '一次最多上传 20 个文件' });
+    }
+    return res.json({ success: false, message: `文件上传失败：${error.message}` });
+  });
+}
 
 const videoUpload = multer({
   storage: multer.diskStorage({
@@ -153,6 +209,71 @@ const avatarUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, callback) => callback(null, file.mimetype.startsWith('image/')),
 });
+
+// 预下载文件库（云盘式空间）专用上传：落到独立目录，不受上传文件库格式校验约束
+const preFileUpload = multer({
+  storage: multer.diskStorage({
+    destination: preFileDirectory,
+    filename: (req, file, callback) => {
+      const extension = path.extname(file.originalname).toLowerCase();
+      callback(null, `pre-${Date.now()}-${Math.random().toString(36).slice(2)}${extension}`);
+    },
+  }),
+  limits: { fileSize: 200 * 1024 * 1024 },
+});
+
+function preFileUploadField(req, res, next) {
+  preFileUpload.array('pre_files', 50)(req, res, error => {
+    if (!error) return next();
+
+    if (req.files && Array.isArray(req.files)) {
+      req.files.forEach(item => {
+        try { fs.rmSync(item.path, { force: true }); } catch (cleanupError) { /* 忽略清理失败 */ }
+      });
+    }
+
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.json({ success: false, message: '单个文件不能超过 200MB' });
+    }
+    return res.json({ success: false, message: `预下载文件上传失败：${error.message}` });
+  });
+}
+
+// 预下载文件库容量上限：每个用户共享 200MB
+const PRE_FILE_QUOTA_BYTES = 200 * 1024 * 1024;
+
+function preFileUsage(userId) {
+  const row = db.prepare('SELECT COALESCE(SUM(file_size), 0) AS used FROM pre_files WHERE user_id = ?').get(userId);
+  return Number(row ? row.used : 0);
+}
+
+function preFileRowPayload(file) {
+  return {
+    id: file.id,
+    original_name: file.original_name,
+    mime_type: file.mime_type,
+    file_size: file.file_size,
+    created_at: file.created_at,
+    downloadUrl: `/api/pre-files/${file.id}/download`,
+  };
+}
+
+// 字节数 -> 人类可读大小（用于配额提示）
+function formatHumanBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let index = -1;
+  let result = value;
+  do {
+    result /= 1024;
+    index += 1;
+  } while (result >= 1024 && index < units.length - 1);
+  return `${result >= 100 ? result.toFixed(0) : result.toFixed(1)} ${units[index]}`;
+}
+
+// 服务端 ZIP 打包共用的 CRC-32 查找表（惰性构建，避免与前端命名冲突故独立）
+let crc32Table = null;
 
 function getClientIp(req) {
   const address = req.socket.remoteAddress || req.connection.remoteAddress || '-';
@@ -294,9 +415,9 @@ app.use(session({
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 验证码接口速率限制
-app.use(['/api/send-code', '/api/send-login-code', '/api/send-reset-code'], codeLimiter);
+app.use(['/api/send-code', '/api/send-login-code', '/api/send-reset-code', '/api/password-reset/request'], codeLimiter);
 // 登录 / 注册 / 重置密码接口速率限制
-app.use(['/api/login', '/api/login-code', '/api/register', '/api/reset-password'], authLimiter);
+app.use(['/api/login', '/api/login-code', '/api/register', '/api/reset-password', '/api/password-reset/confirm'], authLimiter);
 
 // 记录活跃会话并踢出已撤销的会话
 app.use((req, res, next) => {
@@ -337,6 +458,20 @@ async function issueVerificationCode(email, purpose) {
   }
 }
 
+// 邮件链接里的令牌：32 字节随机数的十六进制（只在 URL 里出现，不落库明文）
+function generateResetToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+// 邮件链接优先用配置项；未配置时回落当前请求的 Host（保证本地开发也能收到可点击的 URL）
+function siteBaseUrl(req) {
+  return config.baseUrl || `${req.protocol}://${req.get('host')}`;
+}
+
 // 在 req.session 中写入 userId，并记录到 user_sessions 表
 function registerSession(req, remember) {
   if (!req.session.userId) return;
@@ -346,6 +481,42 @@ function registerSession(req, remember) {
     req.session.cookie.maxAge = null; // 浏览器会话Cookie
   }
   db.prepare(`\n    INSERT INTO user_sessions (id, user_id, ip, user_agent)\n    VALUES (?, ?, ?, ?)\n    ON CONFLICT(id) DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP\n  `).run(req.sessionID, req.session.userId, getClientIp(req), req.headers['user-agent'] || '');
+}
+
+// 缩略图 URL：存路径名，按已配置的前缀拼出访问地址
+function getThumbnailUrl(filename) {
+  return filename ? `/uploads/thumbnails/${encodeURIComponent(filename)}` : null;
+}
+
+// 根据文件名猜测 MIME 类型（用于 inline display）
+function guessMimeType(filename) {
+  const extension = path.extname(String(filename || '')).toLowerCase();
+  const map = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
+    '.webp': 'image/webp', '.bmp': 'image/bmp',
+    '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac', '.flac': 'audio/flac',
+  };
+  return map[extension] || 'application/octet-stream';
+}
+
+// 批次聚合用：判断文件属于图片 / 音频（其他一律归为"其他文件"）
+function isImageMime(mimeType) {
+  return String(mimeType || '').startsWith('image/');
+}
+function isAudioMime(mimeType) {
+  return String(mimeType || '').startsWith('audio/');
+}
+
+// 邮箱脱敏显示：abc@qq.com -> a**@qq.com
+function maskEmail(email) {
+  const value = String(email || '');
+  const atIndex = value.indexOf('@');
+  if (atIndex <= 0) return value;
+  const name = value.slice(0, atIndex);
+  const domain = value.slice(atIndex);
+  const head = name.slice(0, 1);
+  return `${head}${'*'.repeat(Math.max(1, name.length - 1))}${domain}`;
 }
 
 // 检查邮箱是否被锁定
@@ -388,6 +559,16 @@ function clearLoginFail(email) {
   db.prepare('DELETE FROM login_attempts WHERE email = ?').run(email);
 }
 
+// 校验令牌是否可用：仅与库中哈希比对，不泄露账号信息
+function findValidResetToken(token) {
+  const tokenHash = hashResetToken(token);
+  return db.prepare(`
+    SELECT id, user_id FROM password_reset_tokens
+    WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+    ORDER BY created_at DESC LIMIT 1
+  `).get(tokenHash, new Date().toISOString());
+}
+
 // 发送验证码
 app.post('/api/send-code', async (req, res) => {
   const email = normalizeEmail(req.body.email);
@@ -403,6 +584,115 @@ app.post('/api/send-code', async (req, res) => {
     console.error('发送邮件失败:', error);
     res.json({ success: false, message: '发送验证码失败，请稍后重试' });
   }
+});
+
+// 接口 1：申请发送验证链接
+//   - 已登录（入口 A：dashboard「修改密码」）：直接从会话取出用户，不看请求体
+//   - 未登录（入口 B：login.html「忘记密码」）：需要注册邮箱
+app.post('/api/password-reset/request', async (req, res) => {
+  let user = null;
+
+  if (req.session.userId) {
+    user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(req.session.userId);
+    if (!user) {
+      return res.json({ success: false, message: '登录已失效，请重新登录' });
+    }
+  } else {
+    const email = normalizeEmail(String(req.body.email || ''));
+    if (!validateEmail(email)) {
+      return res.json({ success: false, message: '请输入有效的邮箱地址' });
+    }
+    user = db.prepare('SELECT id, email FROM users WHERE email = ?').get(email);
+    if (!user) {
+      return res.json({ success: false, message: '该邮箱尚未注册' });
+    }
+  }
+
+  // 作废旧令牌（保证同一时间只有一个有效链接），再写入新的
+  db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?').run(user.id);
+
+  const token = generateResetToken();
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  db.prepare('INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)')
+    .run(user.id, hashResetToken(token), expiresAt);
+
+  const resetUrl = `${siteBaseUrl(req)}/reset-password.html?token=${token}`;
+
+  try {
+    await sendPasswordResetEmail(user.email, resetUrl, 30);
+    res.json({
+      success: true,
+      message: `密码修改链接已发送至 ${maskEmail(user.email)}，30 分钟内有效`,
+    });
+  } catch (error) {
+    // 发送失败则回收刚写入的令牌，避免留下永远收不到的无效令牌
+    db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?').run(user.id);
+    console.error('发送密码修改邮件失败:', error.message);
+    res.json({ success: false, message: '发送验证邮件失败，请稍后重试' });
+  }
+});
+
+// 接口 2：校验令牌是否可用（供 reset-password.html 载入时调用；只返回脱敏邮箱）
+app.get('/api/password-reset/verify', (req, res) => {
+  const token = String(req.query.token || '').trim();
+  if (!token) {
+    return res.json({ success: false, message: '缺少验证令牌' });
+  }
+
+  const record = findValidResetToken(token);
+  if (!record) {
+    return res.json({ success: false, message: '链接无效或已过期，请重新申请' });
+  }
+
+  const user = db.prepare('SELECT email FROM users WHERE id = ?').get(record.user_id);
+  if (!user) {
+    return res.json({ success: false, message: '账号不存在' });
+  }
+
+  // 只返回脱敏邮箱，不泄露登录名
+  res.json({ success: true, email: maskEmail(user.email) });
+});
+
+// 接口 3：提交新密码；令牌为单次使用，成功后撤销全部会话并发送"已更新"通知邮件
+app.post('/api/password-reset/confirm', async (req, res) => {
+  const token = String(req.body.token || '').trim();
+  const password = String(req.body.password || '');
+
+  if (!token) {
+    return res.json({ success: false, message: '缺少验证令牌' });
+  }
+  if (!password || password.length < 8) {
+    return res.json({ success: false, message: '密码至少为8位字符' });
+  }
+
+  const record = findValidResetToken(token);
+  if (!record) {
+    return res.json({ success: false, message: '链接无效或已过期，请重新申请' });
+  }
+
+  const user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(record.user_id);
+  if (!user) {
+    return res.json({ success: false, message: '账号不存在' });
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+  db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedPassword, user.id);
+
+  // 令牌单次使用：标记已用，同时清掉该用户其余令牌（防止重复发链接失效不彻底）
+  db.prepare('UPDATE password_reset_tokens SET used_at = ? WHERE id = ?').run(new Date().toISOString(), record.id);
+  db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? AND id != ?').run(user.id, record.id);
+
+  // 安全收尾：清除登录失败锁定，撤销全部设备会话（强制用新密码重新登录）
+  clearLoginFail(user.email);
+  db.prepare('UPDATE user_sessions SET revoked = 1 WHERE user_id = ?').run(user.id);
+
+  try {
+    await sendPasswordChangedEmail(user.email);
+  } catch (error) {
+    console.error('发送密码更新通知邮件失败:', error.message);
+  }
+
+  res.json({ success: true, message: '密码修改成功，请使用新密码登录' });
 });
 
 // 发送邮箱登录验证码
@@ -718,7 +1008,7 @@ app.get('/api/files', (req, res) => {
   const orderBy = sort === 'hot' ? 'f.download_count DESC, f.created_at DESC' : 'f.created_at DESC';
   const userFilter = userId ? 'WHERE f.user_id = ?' : '';
   const bindVars = userId ? [userId, limit] : [limit];
-  const files = db.prepare(`\n    SELECT f.id, f.user_id, f.title, f.filename, f.original_name, f.mime_type, f.file_size, f.password_hash, f.download_count, f.created_at,\n      u.username, u.avatar_filename,\n      ${req.session.userId ? `(SELECT COUNT(*) FROM favorites WHERE user_id = ? AND content_type = 'file' AND content_id = f.id) AS favorited` : '0 AS favorited'}\n    FROM files f\n    JOIN users u ON u.id = f.user_id\n    ${userFilter}\n    ORDER BY ${orderBy}\n    LIMIT ?\n  `).all(...(req.session.userId ? [req.session.userId, ...bindVars] : bindVars));
+  const files = db.prepare(`\n    SELECT f.id, f.user_id, f.title, f.filename, f.original_name, f.mime_type, f.file_size, f.password_hash, f.download_count, f.created_at, f.thumbnail,\n      u.username, u.avatar_filename,\n      ${req.session.userId ? `(SELECT COUNT(*) FROM favorites WHERE user_id = ? AND content_type = 'file' AND content_id = f.id) AS favorited` : '0 AS favorited'}\n    FROM files f\n    JOIN users u ON u.id = f.user_id\n    ${userFilter}\n    ORDER BY ${orderBy}\n    LIMIT ?\n  `).all(...(req.session.userId ? [req.session.userId, ...bindVars] : bindVars));
 
   res.json(files.map(file => ({
     passwordProtected: Boolean(file.password_hash),
@@ -732,12 +1022,163 @@ app.get('/api/files', (req, res) => {
     created_at: file.created_at,
     username: file.username,
     avatarUrl: avatarUrl(file.avatar_filename),
+    thumbnailUrl: getThumbnailUrl(file.thumbnail),
+    rawUrl: `/api/files/${file.id}/raw`,
     owner: req.session.userId === file.user_id,
     favorited: req.session.userId ? Boolean(file.favorited) : 0,
     downloadUrl: req.session.userId === file.user_id || !file.password_hash
       ? `/api/files/${file.id}/download`
       : null,
   })));
+});
+
+// ===== 首页热门文件：一次上传 = 一个批次（batch_id）= 一张卡片 =====
+
+// 历史数据没有 batch_id，按"单文件即独立批次"兼容。
+// 注意：别名不能叫 batch_id，否则会与 files.batch_id 同名列冲突（SQLite 优先取真实列，导致所有 NULL 行被并成一批）
+const BATCH_KEY_SQL = "COALESCE(f.batch_id, 'legacy-' || f.id)";
+
+// 批次热度指标：下载量 / 浏览量 / 收藏数按批次求和后算出热度
+function loadBatchSummaries() {
+  const rows = db.prepare(`
+    SELECT ${BATCH_KEY_SQL} AS batch_key,
+      COUNT(*) AS total,
+      SUM(f.download_count) AS download_count,
+      SUM(f.view_count) AS view_count,
+      SUM(CASE WHEN f.password_hash IS NOT NULL THEN 1 ELSE 0 END) AS protected_count,
+      MAX(f.created_at) AS created_at,
+      MAX(f.user_id) AS user_id
+    FROM files f
+    GROUP BY ${BATCH_KEY_SQL}
+  `).all();
+
+  // 收藏表按 content_id 指向具体文件，这里归并到所属批次
+  const favoriteRows = db.prepare(`
+    SELECT ${BATCH_KEY_SQL} AS batch_key, COUNT(*) AS favorite_count
+    FROM favorites fav
+    JOIN files f ON f.id = fav.content_id
+    WHERE fav.content_type = 'file'
+    GROUP BY ${BATCH_KEY_SQL}
+  `).all();
+  const favoriteByBatch = new Map(favoriteRows.map(row => [row.batch_key, row.favorite_count]));
+
+  return rows.map(row => {
+    const favoriteCount = favoriteByBatch.get(row.batch_key) || 0;
+    return {
+      ...row,
+      favorite_count: favoriteCount,
+      heat: FileCardLogic.computeFileHeat({
+        downloadCount: row.download_count,
+        favoriteCount,
+        viewCount: row.view_count,
+      }),
+    };
+  });
+}
+
+// 批次内容：图片九宫格 / 音频播放器 / 其他文件列表
+function loadBatchContents(batchIds) {
+  const contents = new Map();
+  if (!batchIds.length) return contents;
+
+  const placeholders = batchIds.map(() => '?').join(',');
+  const files = db.prepare(`
+    SELECT f.id, f.user_id, f.title, f.original_name, f.mime_type, f.file_size,
+      f.password_hash, f.download_count, f.created_at, f.thumbnail,
+      ${BATCH_KEY_SQL} AS batch_key,
+      u.username, u.avatar_filename
+    FROM files f
+    JOIN users u ON u.id = f.user_id
+    WHERE ${BATCH_KEY_SQL} IN (${placeholders})
+    ORDER BY batch_key, (f.batch_index IS NULL), f.batch_index, f.id
+  `).all(...batchIds);
+
+  files.forEach(file => {
+    let content = contents.get(file.batch_key);
+    if (!content) {
+      content = {
+        title: file.title,
+        user_id: file.user_id,
+        username: file.username,
+        avatarUrl: avatarUrl(file.avatar_filename),
+        images: [],
+        audios: [],
+        others: [],
+      };
+      contents.set(file.batch_key, content);
+    }
+
+    const protectedByPassword = Boolean(file.password_hash);
+    const item = {
+      id: file.id,
+      title: file.title,
+      original_name: file.original_name,
+      mime_type: file.mime_type,
+      file_size: file.file_size,
+      download_count: file.download_count,
+      thumbnailUrl: getThumbnailUrl(file.thumbnail),
+      rawUrl: `/api/files/${file.id}/raw`,
+      // 加密文件需要先验密码，这里不给直链
+      downloadUrl: protectedByPassword ? null : `/api/files/${file.id}/download`,
+      passwordProtected: protectedByPassword,
+    };
+
+    if (isImageMime(file.mime_type)) content.images.push(item);
+    else if (isAudioMime(file.mime_type)) content.audios.push(item);
+    else content.others.push(item);
+  });
+
+  return contents;
+}
+
+// 把批次热度行 + 批次内容组装成前端卡片所需的结构
+function buildBatchPayload(row, content) {
+  return {
+    batchId: row.batch_key,
+    user_id: row.user_id,
+    username: (content && content.username) || '',
+    avatarUrl: (content && content.avatarUrl) || null,
+    created_at: row.created_at,
+    title: (content && content.title) || '未命名文件',
+    total: row.total,
+    passwordProtected: row.protected_count > 0,
+    download_count: row.download_count,
+    view_count: row.view_count,
+    favorite_count: row.favorite_count,
+    heat: row.heat,
+    images: (content && content.images) || [],
+    audios: (content && content.audios) || [],
+    others: (content && content.others) || [],
+  };
+}
+
+// 热门文件列表：按热度降序（热度相同按上传时间降序），支持 offset/limit 分页供滚动加载
+app.get('/api/file-batches', (req, res) => {
+  const { limit } = listOptions(req, 8, 50);
+  const offset = offsetOption(req);
+
+  const summaries = loadBatchSummaries().sort(FileCardLogic.compareFileBatches);
+  const page = summaries.slice(offset, offset + limit);
+  const contents = loadBatchContents(page.map(row => row.batch_key));
+
+  res.json({
+    batches: page.map(row => buildBatchPayload(row, contents.get(row.batch_key))),
+    total: summaries.length,
+    offset,
+    limit,
+    hasMore: offset + page.length < summaries.length,
+  });
+});
+
+// 单个批次详情：详情页按 batchId 精确拉取，避免全量拉取后再在前端筛选
+app.get('/api/file-batches/:batchId', (req, res) => {
+  const row = loadBatchSummaries().find(item => item.batch_key === req.params.batchId);
+  if (!row) {
+    return res.status(404).json({ success: false, message: '批次不存在或已被删除' });
+  }
+
+  const content = loadBatchContents([row.batch_key]).get(row.batch_key);
+  res.json(buildBatchPayload(row, content));
 });
 
 app.get('/api/files/:id', (req, res) => {
@@ -806,42 +1247,122 @@ app.get('/api/files/:id/download', (req, res) => {
   });
 });
 
-app.post('/api/files', fileUpload.single('file'), async (req, res) => {
+// 内联返回原文件（不触发下载），用于看原图与音频播放
+app.get('/api/files/:id/raw', (req, res) => {
+  const file = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id);
+  if (!file) {
+    return res.status(404).json({ success: false, message: '文件不存在' });
+  }
+
+  const isOwner = req.session.userId && req.session.userId === file.user_id;
+  const password = String(req.query.password || '');
+  const canView = !file.password_hash || isOwner || bcrypt.compareSync(password, file.password_hash);
+  if (!canView) {
+    return res.status(403).json({ success: false, message: '需要输入正确的文件密码' });
+  }
+
+  const filePath = path.join(fileDirectory, file.filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, message: '文件不存在或已被删除' });
+  }
+
+  // 浏览量用于热门文件的热度计算；Range 请求来自音频预加载/拖动进度，不计入
+  if (!req.headers.range) {
+    db.prepare('UPDATE files SET view_count = view_count + 1 WHERE id = ?').run(file.id);
+  }
+
+  res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
+  res.sendFile(filePath);
+});
+
+app.post('/api/files', fileUploadFields, async (req, res) => {
   if (!req.session.userId) {
     return res.json({ success: false, message: '请先登录' });
   }
 
-  const title = String(req.body.title || '').trim();
-  const password = String(req.body.password || '').trim();
+  const uploadedFiles = (req.files && req.files.files) || [];
+  const uploadedThumbs = (req.files && req.files.thumbnails) || [];
+  const rejectedFiles = req.rejectedFiles || [];
 
-  if (!req.file) {
+  if (uploadedFiles.length === 0 && rejectedFiles.length === 0) {
     return res.json({ success: false, message: '请选择要上传的文件' });
   }
 
-  if (!title) {
-    fs.unlinkSync(req.file.path);
-    return res.json({ success: false, message: '请输入文件标题' });
+  if (uploadedFiles.length === 0) {
+    // 全部被格式校验拦下
+    return res.json({
+      success: false,
+      message: `共 ${rejectedFiles.length} 个文件格式不被支持`,
+      files: [],
+      rejected: rejectedFiles,
+    });
   }
 
-  let passwordHash = null;
-  if (password) {
-    passwordHash = await bcrypt.hash(password, 10);
-  }
+  // 批次统一标题：留空则逐个使用"去掉扩展名的原文件名"
+  const batchTitle = String(req.body.title || '').trim();
+  const password = String(req.body.password || '').trim();
+  const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
-  db.prepare(`
-    INSERT INTO files (user_id, title, filename, original_name, mime_type, file_size, password_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    req.session.userId,
-    title,
-    req.file.filename,
-    req.file.originalname,
-    req.file.mimetype || 'application/octet-stream',
-    req.file.size,
-    passwordHash,
-  );
+  // 前端用 thumbnailIndexes 告诉后端"第几个文件带缩略图"，形如 "0,3,5"
+  const thumbnailIndexes = String(req.body.thumbnailIndexes || '')
+    .split(',')
+    .map(item => Number.parseInt(item, 10))
+    .filter(item => Number.isInteger(item) && item >= 0);
 
-  res.json({ success: true, message: password ? '文件已上传，已开启密码保护' : '文件已上传' });
+  // 一次上传共用一个批次 ID，首页据此聚合为一张卡片
+  const batchId = crypto.randomBytes(12).toString('hex');
+
+  const insert = db.prepare(`
+    INSERT INTO files (user_id, title, filename, original_name, mime_type, file_size, password_hash, thumbnail, batch_id, batch_index)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const insertedFiles = [];
+  const insertAll = db.transaction(() => {
+    uploadedFiles.forEach((file, index) => {
+      const thumbPosition = thumbnailIndexes.indexOf(index);
+      const thumbnailFilename = thumbPosition === -1 ? null : (uploadedThumbs[thumbPosition] ? uploadedThumbs[thumbPosition].filename : null);
+      const title = batchTitle || path.parse(file.originalname).name || '未命名文件';
+
+      const result = insert.run(
+        req.session.userId,
+        title,
+        file.filename,
+        file.originalname,
+        file.mimetype || 'application/octet-stream',
+        file.size,
+        passwordHash,
+        thumbnailFilename,
+        batchId,
+        index,
+      );
+
+      insertedFiles.push({
+        id: Number(result.lastInsertRowid),
+        title,
+        original_name: file.originalname,
+        mime_type: file.mimetype || 'application/octet-stream',
+        file_size: file.size,
+        thumbnailUrl: getThumbnailUrl(thumbnailFilename),
+        rawUrl: `/api/files/${result.lastInsertRowid}/raw`,
+        passwordProtected: Boolean(passwordHash),
+      });
+    });
+  });
+
+  insertAll();
+
+  const parts = [`成功上传 ${insertedFiles.length} 个文件`];
+  if (password) parts.push('已开启密码保护');
+  if (rejectedFiles.length) parts.push(`${rejectedFiles.length} 个文件因格式不支持被跳过`);
+
+  res.json({
+    success: true,
+    message: parts.join('，'),
+    batchId,
+    files: insertedFiles,
+    rejected: rejectedFiles,
+  });
 });
 
 app.delete('/api/files/:id', (req, res) => {
@@ -857,6 +1378,329 @@ app.delete('/api/files/:id', (req, res) => {
   db.prepare('DELETE FROM files WHERE id = ? AND user_id = ?').run(req.params.id, req.session.userId);
   fs.unlinkSync(path.join(fileDirectory, file.filename));
   res.json({ success: true, message: '文件已删除' });
+});
+
+// ===== 预下载文件库（云盘式空间，200MB 配额）=====
+
+// 上传到预下载库（独立目录，不做上传文件库的格式校验，仅校验配额）
+app.post('/api/pre-files', preFileUploadField, (req, res) => {
+  if (!req.session.userId) {
+    return res.json({ success: false, message: '请先登录' });
+  }
+
+  const uploadedFiles = req.files || [];
+  if (!uploadedFiles.length) {
+    return res.json({ success: false, message: '请选择要存入预下载库的文件' });
+  }
+
+  const userId = req.session.userId;
+  const used = preFileUsage(userId);
+  const totalSize = uploadedFiles.reduce((sum, file) => sum + file.size, 0);
+
+  // 配额预检：超出则整体拒绝，并清理本次已落盘的文件
+  if (used + totalSize > PRE_FILE_QUOTA_BYTES) {
+    uploadedFiles.forEach(item => {
+      try { fs.rmSync(item.path, { force: true }); } catch (cleanupError) { /* 忽略清理失败 */ }
+    });
+    const remaining = PRE_FILE_QUOTA_BYTES - used;
+    return res.json({
+      success: false,
+      message: `超出预下载库容量上限（200MB），剩余可用 ${Math.max(remaining, 0) >= 0 ? formatHumanBytes(remaining) : '0 B'}`,
+    });
+  }
+
+  const insert = db.prepare(`
+    INSERT INTO pre_files (user_id, filename, original_name, mime_type, file_size)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  const insertedFiles = [];
+  const insertAll = db.transaction(() => {
+    uploadedFiles.forEach(file => {
+      const result = insert.run(userId, file.filename, file.originalname, file.mimetype || 'application/octet-stream', file.size);
+      insertedFiles.push(preFileRowPayload({
+        id: Number(result.lastInsertRowid),
+        original_name: file.originalname,
+        mime_type: file.mimetype || 'application/octet-stream',
+        file_size: file.size,
+        created_at: new Date().toISOString(),
+      }));
+    });
+  });
+  insertAll();
+
+  res.json({
+    success: true,
+    message: `已存入预下载库 ${insertedFiles.length} 个文件`,
+    files: insertedFiles,
+    used: preFileUsage(userId),
+    quota: PRE_FILE_QUOTA_BYTES,
+  });
+});
+
+// 列出当前用户的预下载库 + 用量/配额
+app.get('/api/pre-files', (req, res) => {
+  if (!req.session.userId) {
+    return res.json({ files: [], used: 0, quota: PRE_FILE_QUOTA_BYTES });
+  }
+
+  const rows = db.prepare('SELECT * FROM pre_files WHERE user_id = ? ORDER BY created_at DESC, id DESC').all(req.session.userId);
+  res.json({
+    files: rows.map(preFileRowPayload),
+    used: preFileUsage(req.session.userId),
+    quota: PRE_FILE_QUOTA_BYTES,
+  });
+});
+
+// 单个预下载文件：下载（触发浏览器下载）
+app.get('/api/pre-files/:id/download', (req, res) => {
+  if (!req.session.userId) {
+    return res.json({ success: false, message: '请先登录' });
+  }
+
+  const file = db.prepare('SELECT * FROM pre_files WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (!file) {
+    return res.status(404).json({ success: false, message: '文件不存在或无权访问' });
+  }
+
+  const filePath = path.join(preFileDirectory, file.filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, message: '文件不存在或已被删除' });
+  }
+
+  res.download(filePath, file.original_name || file.filename, {
+    headers: { 'Content-Type': file.mime_type || 'application/octet-stream' },
+  });
+});
+
+// 批量下载：把指定 id 的预下载文件打包为 ZIP（store 方法，前端无需额外依赖）
+app.get('/api/pre-files/zip', (req, res) => {
+  if (!req.session.userId) {
+    return res.json({ success: false, message: '请先登录' });
+  }
+
+  const ids = String(req.query.ids || '').split(',').map(item => Number.parseInt(item.trim(), 10)).filter(Number.isInteger);
+  if (!ids.length) {
+    return res.json({ success: false, message: '请至少选择一个文件' });
+  }
+
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT * FROM pre_files WHERE user_id = ? AND id IN (${placeholders})`).all(req.session.userId, ...ids);
+  if (!rows.length) {
+    return res.status(404).json({ success: false, message: '文件不存在或无权访问' });
+  }
+
+  // 复用前端同款 ZIP 组装逻辑不可行（服务端无 DataView 打包工具则需手写），
+  // 这里用最简 store 方式直接拼二进制，避免引入新依赖。
+  const entries = [];
+  const central = [];
+  let offset = 0;
+  const utf8 = text => Buffer.from(text, 'utf8');
+
+  // CRC-32（与前端一致，逐字节计算）
+  let crcTable = crc32Table;
+  if (!crcTable) {
+    crcTable = crc32Table = new Uint32Array(256);
+    for (let i = 0; i < 256; i += 1) {
+      let value = i;
+      for (let bit = 0; bit < 8; bit += 1) {
+        value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+      }
+      crcTable[i] = value >>> 0;
+    }
+  }
+  const crcOf = buffer => {
+    let crc = 0xffffffff;
+    for (let i = 0; i < buffer.length; i += 1) {
+      crc = crcTable[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  };
+
+  const dosTime = date => {
+    const time = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1);
+    const yearPart = (Math.max(1980, date.getFullYear()) - 1980) << 9;
+    return ((yearPart | (date.getMonth() + 1) << 5 | date.getDate()) << 16) | time;
+  };
+
+  const chunks = [];
+
+  rows.forEach(file => {
+    const filePath = path.join(preFileDirectory, file.filename);
+    if (!fs.existsSync(filePath)) return;
+    const data = fs.readFileSync(filePath);
+    const nameBytes = utf8(file.original_name || file.filename);
+    const crc = crcOf(data);
+    const dos = dosTime(new Date(file.created_at || Date.now()));
+    const flagBits = 0x08;
+
+    const header = Buffer.alloc(30 + nameBytes.length);
+    header.writeUInt32LE(0x04034b50, 0);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(flagBits, 6);
+    header.writeUInt16LE(0, 8);
+    header.writeUInt16LE(dos & 0xffff, 10);
+    header.writeUInt16LE((dos >>> 16) & 0xffff, 12);
+    header.writeUInt32LE(crc, 14);
+    header.writeUInt32LE(data.length, 18);
+    header.writeUInt32LE(data.length, 22);
+    header.writeUInt16LE(nameBytes.length, 26);
+    header.writeUInt16LE(0, 28);
+    nameBytes.copy(header, 30);
+
+    chunks.push(header, data);
+
+    const centralRecord = Buffer.alloc(46 + nameBytes.length);
+    centralRecord.writeUInt32LE(0x02014b50, 0);
+    centralRecord.writeUInt16LE(20, 4);
+    centralRecord.writeUInt16LE(20, 6);
+    centralRecord.writeUInt16LE(0, 8);
+    centralRecord.writeUInt16LE(flagBits, 10);
+    centralRecord.writeUInt16LE(0, 12);
+    centralRecord.writeUInt16LE(0, 14);
+    centralRecord.writeUInt32LE(crc, 16);
+    centralRecord.writeUInt32LE(data.length, 20);
+    centralRecord.writeUInt32LE(data.length, 24);
+    centralRecord.writeUInt16LE(nameBytes.length, 28);
+    centralRecord.writeUInt16LE(0, 30);
+    centralRecord.writeUInt16LE(0, 32);
+    centralRecord.writeUInt16LE(0, 34);
+    centralRecord.writeUInt16LE(0, 36);
+    centralRecord.writeUInt32LE(0, 38);
+    centralRecord.writeUInt32LE(offset, 42);
+    nameBytes.copy(centralRecord, 46);
+
+    central.push(centralRecord);
+    offset += header.length + data.length;
+  });
+
+  const centralSize = central.reduce((sum, record) => sum + record.length, 0);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(central.length, 8);
+  eocd.writeUInt16LE(central.length, 10);
+  eocd.writeUInt32LE(centralSize, 12);
+  eocd.writeUInt32LE(offset, 16);
+  eocd.writeUInt16LE(0, 20);
+
+  const zipBuffer = Buffer.concat([...chunks, ...central, eocd]);
+  const zipName = `pre-files-${Date.now()}.zip`;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipName)}"`);
+  res.send(zipBuffer);
+});
+
+// 单个删除
+app.delete('/api/pre-files/:id', (req, res) => {
+  if (!req.session.userId) {
+    return res.json({ success: false, message: '请先登录' });
+  }
+
+  const file = db.prepare('SELECT filename FROM pre_files WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (!file) {
+    return res.status(404).json({ success: false, message: '文件不存在或无权删除' });
+  }
+
+  db.prepare('DELETE FROM pre_files WHERE id = ? AND user_id = ?').run(req.params.id, req.session.userId);
+  try { fs.unlinkSync(path.join(preFileDirectory, file.filename)); } catch (cleanupError) { /* 忽略清理失败 */ }
+  res.json({ success: true, message: '文件已删除' });
+});
+
+// 批量删除
+app.delete('/api/pre-files', (req, res) => {
+  if (!req.session.userId) {
+    return res.json({ success: false, message: '请先登录' });
+  }
+
+  const ids = Array.isArray(req.body.ids)
+    ? req.body.ids.map(item => Number.parseInt(item, 10)).filter(Number.isInteger)
+    : [];
+  if (!ids.length) {
+    return res.json({ success: false, message: '请至少选择一个文件' });
+  }
+
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT id, filename FROM pre_files WHERE user_id = ? AND id IN (${placeholders})`).all(req.session.userId, ...ids);
+  if (!rows.length) {
+    return res.status(404).json({ success: false, message: '文件不存在或无权删除' });
+  }
+
+  const deleteAll = db.transaction(() => {
+    rows.forEach(row => {
+      db.prepare('DELETE FROM pre_files WHERE id = ? AND user_id = ?').run(row.id, req.session.userId);
+      try { fs.unlinkSync(path.join(preFileDirectory, row.filename)); } catch (cleanupError) { /* 忽略清理失败 */ }
+    });
+  });
+  deleteAll();
+
+  res.json({ success: true, message: `已删除 ${rows.length} 个文件` });
+});
+
+// 我的上传文件库：按批次（一次上传 = 一张卡片）聚合当前登录用户自己的文件
+app.get('/api/my-file-batches', (req, res) => {
+  if (!req.session.userId) {
+    return res.json({ batches: [] });
+  }
+
+  // 该用户所有文件按批次键聚合（无 batch_id 的历史文件视为独立批次）
+  const summaries = db.prepare(`
+    SELECT ${BATCH_KEY_SQL} AS batch_key,
+      COUNT(*) AS total,
+      SUM(f.file_size) AS total_size,
+      MAX(f.created_at) AS created_at,
+      MAX(f.title) AS title
+    FROM files f
+    WHERE f.user_id = ?
+    GROUP BY ${BATCH_KEY_SQL}
+    ORDER BY created_at DESC, batch_key DESC
+  `).all(req.session.userId);
+
+  if (!summaries.length) {
+    return res.json({ batches: [] });
+  }
+
+  const batchKeys = summaries.map(row => row.batch_key);
+  const placeholders = batchKeys.map(() => '?').join(',');
+  const files = db.prepare(`
+    SELECT f.id, f.title, f.original_name, f.mime_type, f.file_size, f.password_hash,
+      f.created_at, f.thumbnail, ${BATCH_KEY_SQL} AS batch_key
+    FROM files f
+    WHERE f.user_id = ? AND ${BATCH_KEY_SQL} IN (${placeholders})
+    ORDER BY f.created_at, f.id
+  `).all(req.session.userId, ...batchKeys);
+
+  const filesByBatch = new Map();
+  files.forEach(file => {
+    let list = filesByBatch.get(file.batch_key);
+    if (!list) {
+      list = [];
+      filesByBatch.set(file.batch_key, list);
+    }
+    list.push({
+      id: file.id,
+      title: file.title,
+      original_name: file.original_name,
+      mime_type: file.mime_type,
+      file_size: file.file_size,
+      created_at: file.created_at,
+      thumbnailUrl: getThumbnailUrl(file.thumbnail),
+      downloadUrl: `/api/files/${file.id}/download`,
+      passwordProtected: Boolean(file.password_hash),
+    });
+  });
+
+  const batches = summaries.map(row => ({
+    batchId: row.batch_key,
+    title: row.title,
+    total: row.total,
+    totalSize: Number(row.total_size) || 0,
+    createdAt: row.created_at,
+    files: filesByBatch.get(row.batch_key) || [],
+  }));
+
+  res.json({ batches });
 });
 
 app.get('/api/search', (req, res) => {
