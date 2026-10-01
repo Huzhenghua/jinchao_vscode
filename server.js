@@ -24,6 +24,10 @@ const {
 } = require('./validation');
 
 const app = express();
+// cloudflared 隧道 / 反向代理部署：信任第一层代理，
+// 使 req.protocol 识别 X-Forwarded-Proto（邮件里的重置链接才是 https），
+// 同时 express-rate-limit 也能拿到真实客户端 IP，避免隧道下所有用户共享同一限流桶
+app.set('trust proxy', 1);
 const videoDirectory = path.join(__dirname, 'public', 'uploads', 'videos');
 const fileDirectory = path.join(__dirname, 'public', 'uploads', 'files');
 // 预下载文件库（云盘式空间）：与上传文件库相互独立的存储目录
@@ -586,6 +590,22 @@ app.post('/api/send-code', async (req, res) => {
   }
 });
 
+// 每个邮箱申请密码修改链接的冷却时间：防止短时间内重复发信造成邮件轰炸
+const PASSWORD_RESET_COOLDOWN_MS = 60 * 1000;
+const passwordResetSentAt = new Map();
+
+// 同一邮箱 60 秒内只允许申请一次密码修改链接，返回剩余等待秒数（0 表示可以发送）
+function passwordResetCooldownRemaining(key) {
+  const lastSentAt = passwordResetSentAt.get(key);
+  if (!lastSentAt) return 0;
+  const elapsed = Date.now() - lastSentAt;
+  if (elapsed >= PASSWORD_RESET_COOLDOWN_MS) {
+    passwordResetSentAt.delete(key);
+    return 0;
+  }
+  return Math.ceil((PASSWORD_RESET_COOLDOWN_MS - elapsed) / 1000);
+}
+
 // 接口 1：申请发送验证链接
 //   - 已登录（入口 A：dashboard「修改密码」）：直接从会话取出用户，不看请求体
 //   - 未登录（入口 B：login.html「忘记密码」）：需要注册邮箱
@@ -608,6 +628,12 @@ app.post('/api/password-reset/request', async (req, res) => {
     }
   }
 
+  // 每邮箱冷却：60 秒内不重复发送，避免误触连点造成邮件轰炸
+  const cooldownRemaining = passwordResetCooldownRemaining(user.id);
+  if (cooldownRemaining > 0) {
+    return res.json({ success: false, message: `发送过于频繁，请 ${cooldownRemaining} 秒后再试` });
+  }
+
   // 作废旧令牌（保证同一时间只有一个有效链接），再写入新的
   db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?').run(user.id);
 
@@ -620,6 +646,7 @@ app.post('/api/password-reset/request', async (req, res) => {
 
   try {
     await sendPasswordResetEmail(user.email, resetUrl, 30);
+    passwordResetSentAt.set(user.id, Date.now());
     res.json({
       success: true,
       message: `密码修改链接已发送至 ${maskEmail(user.email)}，30 分钟内有效`,

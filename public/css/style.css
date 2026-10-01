@@ -4622,9 +4622,11 @@ body.lightbox-open {
 }
 
 /* 4 列 × (3×100px 九宫格 + 间距 + 卡片内边距) 需要约 1440px 的内容宽度，
-   而站点主容器上限是 1280px。这里让热门文件这一行在宽屏上突破容器，
-   以便九宫格缩略图真正达到 100×100px；窄屏时自动收回容器内。 */
-.hot-files-section .file-batch-list {
+   而站点主容器上限是 1280px。宽屏时让整个热门文件区块（节标题行 + 网格）
+   一起突破容器并保持同宽，使节标题与卡片左右边缘严格对齐；
+   100vw 含滚动条约 15px，减去 2rem 后仍小于可视宽度，不会产生横向滚动条；
+   窄屏时自动收回容器内。 */
+.hot-files-section {
   --hot-files-row-width: min(1440px, calc(100vw - 2rem));
   width: var(--hot-files-row-width);
   margin-inline: calc((100% - var(--hot-files-row-width)) / 2);
